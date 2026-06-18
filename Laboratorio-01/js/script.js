@@ -35,18 +35,18 @@ themeButton.addEventListener("click", function () {
 // Datos de ejemplo para mostrar tareas según el día seleccionado en el calendario.
 const calendarTasks = {
     12: [
-        { title: "Quiz de programación", priority: "Media", className: "medium" }
-    ],
-    15: [
-        { title: "Proyecto de programación web", priority: "Alta", className: "high" },
-        { title: "Repaso de base de datos", priority: "Media", className: "medium" }
+        { title: "Tarea", priority: "Baja", className: "low" }
     ],
     17: [
         { title: "Práctica de inglés", priority: "Media", className: "medium" }
     ],
-    24: [
+    18: [
         { title: "Entrega de laboratorio", priority: "Alta", className: "high" },
-        { title: "Lectura de accesibilidad web", priority: "Baja", className: "low" }
+        { title: "Repaso de Inglés", priority: "Alta", className: "high" }
+    ],
+    24: [
+        { title: "Exposición de Base de Datos", priority: "Media", className: "medium" },
+        { title: "Quiz de Arquitectura", priority: "Baja", className: "low" }
     ]
 };
 
@@ -107,9 +107,9 @@ todayButton.addEventListener("click", function () {
         button.classList.remove("active-day");
     });
 
-    const defaultDay = document.querySelector('.calendar-day[data-day="15"]');
+    const defaultDay = document.querySelector('.calendar-day[data-day="18"]');
     defaultDay.classList.add("active-day");
-    updateCalendarTasks("15");
+    updateCalendarTasks("18");
 });
 
 // Selecciona el formulario de contacto y el mensaje que aparece debajo.

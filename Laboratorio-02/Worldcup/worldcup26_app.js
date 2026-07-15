@@ -6,89 +6,36 @@
 const BASE = "https://worldcup26.ir";
 
 /* ──────────────────────────────────────────────────────
-   ESTADO DE APLICACIÓN
-   Separamos claramente los tres recursos para que el fallo
-   de uno no contamine el estado de los otros.
+   ESTADO DE LA APLICACIÓN
 ────────────────────────────────────────────────────── */
 const state = {
-  teams:     [],            // Array<{id, name, flag_url, ...}>
-  //
+  teams: [],
+  games: [],
+  selectedTeam: null,
+  selectedGames: [],
+  gamesLoaded: false
 };
 
 /* ──────────────────────────────────────────────────────
-   SELECTORES DOM
+   SELECTORES DEL DOM
 ────────────────────────────────────────────────────── */
-const teamSelect     = document.getElementById("teamSelect");
-const teamInfo     = document.getElementById("teamInfo");
-const cardsGrid       = document.getElementById("cardsGrid");
-const statsBar        = document.getElementById("statsBar");
-const sectionEyebrow  = document.getElementById("sectionEyebrow");
-const citiesSection   = document.getElementById("citiesSection");
-const apiStatus       = document.getElementById("apiStatus");
+const teamSelect = document.getElementById("teamSelect");
+const teamInfo = document.getElementById("teamInfo");
+const teamFlagImg = document.getElementById("teamFlagImg");
+const teamName = document.getElementById("teamName");
+
+const cardsGrid = document.getElementById("cardsGrid");
+const sectionEyebrow = document.getElementById("sectionEyebrow");
+const eyebrowCount = document.getElementById("eyebrowCount");
+const gamesEmptyState = document.getElementById("gamesEmptyState");
+
+const statsBar = document.getElementById("statsBar");
+const citiesSection = document.getElementById("citiesSection");
+const apiStatus = document.getElementById("apiStatus");
+
 const screenButtons = document.querySelectorAll("[data-screen]");
 const screenPanels = document.querySelectorAll("[data-screen-panel]");
 const startButton = document.getElementById("startButton");
-
-/* ──────────────────────────────────────────────────────
-   POBLAR SELECTOR DE EQUIPOS
-   Datos obtenidos de /get/teams, ordenados alfabéticamente.
-────────────────────────────────────────────────────── */
-function populateTeamSelector() {
-  const sortedTeamList = [...state.teams].sort((a, b) => {
-    const na = a.name_en ?? "";
-    const nb = b.name_en ?? "";
-    return na.localeCompare(nb);
-  });
-
-
-  teamSelect.innerHTML =
-    `<option value="">— Selecciona un equipo (${sortedTeamList.length}) —</option>`;
-
-  sortedTeamList.forEach(team => {
-    const opt = document.createElement("option");
-    opt.value = String(team.id);
-    opt.textContent = team.name_en ?? `Equipo ${team.id}`;
-    teamSelect.appendChild(opt);
-  });
-
-  addEventToTeamSelect();
-  teamSelect.disabled = false;
-}
-
-/* ──────────────────────────────────────────────────────
-   EVENTO: cambio de equipo en el selector
-────────────────────────────────────────────────────── */
-function addEventToTeamSelect() {
-  teamSelect.addEventListener("change", () => {
-    const teamId = teamSelect.value;
-
-    if (!teamId) {
-      teamInfo.style.display = "none";
-      return;
-    }
-
-    const selectedTeam = state.teams.find(
-      team => String(team.id) === teamId
-    );
-
-    if (!selectedTeam) {
-      console.error("No se encontró el equipo seleccionado.");
-      teamInfo.style.display = "none";
-      return;
-    }
-
-    const flag = document.getElementById("teamFlagImg");
-    const name = document.getElementById("teamName");
-
-    flag.src = selectedTeam.flag;
-    flag.alt = `Bandera de ${selectedTeam.name_en}`;
-    name.textContent = selectedTeam.name_en;
-
-    teamInfo.style.display = "flex";
-
-    console.log("Equipo seleccionado:", selectedTeam);
-  });
-}
 
 /* ──────────────────────────────────────────────────────
    NAVEGACIÓN ENTRE LAS CINCO PANTALLAS
@@ -130,29 +77,381 @@ function configureScreenNavigation() {
 }
 
 /* ──────────────────────────────────────────────────────
-   Init: carga inicial de los tres endpoints
+   BÚSQUEDA DE EQUIPOS
 ────────────────────────────────────────────────────── */
-function init() {
-  configureScreenNavigation();
+function getTeamById(teamId) {
+  return state.teams.find(
+    team => String(team.id) === String(teamId)
+  );
+}
 
+/* ──────────────────────────────────────────────────────
+   CONVERSIÓN DE FECHAS
+   La API utiliza el formato MM/DD/YYYY HH:mm.
+────────────────────────────────────────────────────── */
+function parseLocalDate(localDate) {
+  if (!localDate || typeof localDate !== "string") {
+    return new Date(NaN);
+  }
+
+  const [datePart, timePart = "00:00"] =
+    localDate.trim().split(" ");
+
+  const [month, day, year] =
+    datePart.split("/").map(Number);
+
+  const [hour, minute] =
+    timePart.split(":").map(Number);
+
+  return new Date(
+    year,
+    month - 1,
+    day,
+    hour,
+    minute
+  );
+}
+
+function formatLocalDate(localDate) {
+  const date = parseLocalDate(localDate);
+
+  if (Number.isNaN(date.getTime())) {
+    return localDate || "Fecha no disponible";
+  }
+
+  return new Intl.DateTimeFormat("es-CR", {
+    dateStyle: "long",
+    timeStyle: "short"
+  }).format(date);
+}
+
+/* ──────────────────────────────────────────────────────
+   POBLAR EL SELECTOR DE EQUIPOS
+────────────────────────────────────────────────────── */
+function populateTeamSelector() {
+  const sortedTeamList = [...state.teams].sort((a, b) => {
+    const nameA = a.name_en ?? "";
+    const nameB = b.name_en ?? "";
+
+    return nameA.localeCompare(nameB);
+  });
+
+  teamSelect.innerHTML =
+    `<option value="">
+      — Selecciona un equipo (${sortedTeamList.length}) —
+    </option>`;
+
+  sortedTeamList.forEach(team => {
+    const option = document.createElement("option");
+
+    option.value = String(team.id);
+    option.textContent =
+      team.name_en ?? `Equipo ${team.id}`;
+
+    teamSelect.appendChild(option);
+  });
+
+  teamSelect.disabled = false;
+}
+
+/* ──────────────────────────────────────────────────────
+   MOSTRAR EL EQUIPO SELECCIONADO
+────────────────────────────────────────────────────── */
+function renderSelectedTeam(team) {
+  teamFlagImg.src = team.flag;
+  teamFlagImg.alt =
+    `Bandera de ${team.name_en}`;
+
+  teamName.textContent =
+    team.name_en ?? `Equipo ${team.id}`;
+
+  teamInfo.style.display = "flex";
+}
+
+/* ──────────────────────────────────────────────────────
+   LIMPIAR LA SELECCIÓN
+────────────────────────────────────────────────────── */
+function clearSelectedTeam() {
+  state.selectedTeam = null;
+  state.selectedGames = [];
+
+  teamInfo.style.display = "none";
+
+  cardsGrid.innerHTML = "";
+  eyebrowCount.textContent = "0";
+  sectionEyebrow.classList.remove("visible");
+
+  gamesEmptyState.style.display = "block";
+  gamesEmptyState.textContent =
+    "Seleccione primero un equipo para consultar su itinerario.";
+}
+
+/* ──────────────────────────────────────────────────────
+   FILTRAR Y ORDENAR LOS PARTIDOS DEL EQUIPO
+────────────────────────────────────────────────────── */
+function updateSelectedTeamGames() {
+  if (!state.selectedTeam) {
+    return;
+  }
+
+  if (!state.gamesLoaded) {
+    gamesEmptyState.style.display = "block";
+    gamesEmptyState.textContent =
+      "Los partidos todavía se están cargando.";
+
+    return;
+  }
+
+  const selectedTeamId =
+    String(state.selectedTeam.id);
+
+  state.selectedGames = state.games
+    .filter(game => {
+      const homeTeamId =
+        String(game.home_team_id);
+
+      const awayTeamId =
+        String(game.away_team_id);
+
+      return (
+        homeTeamId === selectedTeamId ||
+        awayTeamId === selectedTeamId
+      );
+    })
+    .sort((gameA, gameB) => {
+      const dateA =
+        parseLocalDate(gameA.local_date);
+
+      const dateB =
+        parseLocalDate(gameB.local_date);
+
+      return dateA - dateB;
+    });
+
+  renderGames();
+}
+
+/* ──────────────────────────────────────────────────────
+   OBTENER LA FASE DEL PARTIDO
+────────────────────────────────────────────────────── */
+function getMatchPhase(game) {
+  const phaseCode = String(game.group ?? "")
+    .trim()
+    .toUpperCase();
+
+  const isGroupStage = /^[A-L]$/.test(phaseCode);
+
+  if (isGroupStage) {
+    return {
+      text: `Grupo ${phaseCode}`,
+      showMatchday: true
+    };
+  }
+
+  const knockoutPhases = {
+    R32: "Ronda de 32",
+    R16: "Octavos de final",
+    QF: "Cuartos de final",
+    SF: "Semifinal",
+    F: "Final"
+  };
+
+  return {
+    text: knockoutPhases[phaseCode] ?? "Fase eliminatoria",
+    showMatchday: false
+  };
+}
+
+/* ──────────────────────────────────────────────────────
+   CREAR UNA TARJETA DE PARTIDO
+────────────────────────────────────────────────────── */
+function createMatchCard(game) {
+  const selectedTeamId =
+    String(state.selectedTeam.id);
+
+  const isHome =
+    String(game.home_team_id) === selectedTeamId;
+
+  const opponentId = isHome
+    ? game.away_team_id
+    : game.home_team_id;
+
+  const opponentTeam =
+    getTeamById(opponentId);
+
+  const opponentName =
+    opponentTeam?.name_en ??
+    (isHome
+      ? game.away_team_name_en
+      : game.home_team_name_en) ??
+    `Equipo ${opponentId}`;
+
+  const selectedTeamName =
+    state.selectedTeam.name_en ??
+    `Equipo ${state.selectedTeam.id}`;
+
+  const roleName =
+    isHome ? "Local" : "Visitante";
+
+  const roleClass =
+    isHome ? "role-home" : "role-away";
+
+  const matchPhase = getMatchPhase(game);
+
+  const matchdayText =
+    matchPhase.showMatchday && game.matchday
+      ? ` · Jornada ${game.matchday}`
+      : "";
+
+  const card = document.createElement("article");
+
+  card.className =
+    `match-card ${isHome ? "home" : "away"}`;
+
+  card.innerHTML = `
+    <div class="card-stripe"></div>
+
+    <div class="card-header">
+      <div class="card-matchup">
+        <p class="card-round">
+          ${matchPhase.text}${matchdayText}
+        </p>
+
+        <h3 class="card-teams">
+          <span class="team-highlight">
+            ${selectedTeamName}
+          </span>
+          vs ${opponentName}
+        </h3>
+      </div>
+
+      <span class="card-role-badge ${roleClass}">
+        ${roleName}
+      </span>
+    </div>
+
+    <div class="card-body">
+      <div class="card-row">
+        <span class="card-icon" aria-hidden="true">📅</span>
+
+        <div class="card-row-content">
+          <p class="card-row-label">Fecha y hora</p>
+
+          <p class="card-row-value">
+            ${formatLocalDate(game.local_date)}
+          </p>
+        </div>
+      </div>
+
+      <div class="card-row">
+        <span class="card-icon" aria-hidden="true">🏟️</span>
+
+        <div class="card-row-content">
+          <p class="card-row-label">Estadio</p>
+
+          <p class="card-row-value">
+            Pendiente de cargar
+          </p>
+
+          <p class="card-row-sub">
+            Identificador del estadio:
+            ${game.stadium_id ?? "No disponible"}
+          </p>
+        </div>
+      </div>
+    </div>
+  `;
+
+  return card;
+}
+
+/* ──────────────────────────────────────────────────────
+   MOSTRAR LOS PARTIDOS EN PANTALLA
+────────────────────────────────────────────────────── */
+function renderGames() {
+  cardsGrid.innerHTML = "";
+
+  eyebrowCount.textContent =
+    String(state.selectedGames.length);
+
+  if (state.selectedGames.length === 0) {
+    sectionEyebrow.classList.remove("visible");
+
+    gamesEmptyState.style.display = "block";
+    gamesEmptyState.textContent =
+      "No se encontraron partidos para el equipo seleccionado.";
+
+    return;
+  }
+
+  gamesEmptyState.style.display = "none";
+  sectionEyebrow.classList.add("visible");
+
+  state.selectedGames.forEach(game => {
+    const card = createMatchCard(game);
+    cardsGrid.appendChild(card);
+  });
+}
+
+/* ──────────────────────────────────────────────────────
+   EVENTO DEL SELECTOR
+────────────────────────────────────────────────────── */
+function addEventToTeamSelect() {
+  teamSelect.addEventListener("change", () => {
+    const teamId = teamSelect.value;
+
+    if (!teamId) {
+      clearSelectedTeam();
+      return;
+    }
+
+    const selectedTeam =
+      getTeamById(teamId);
+
+    if (!selectedTeam) {
+      console.error(
+        "No se encontró el equipo seleccionado."
+      );
+
+      clearSelectedTeam();
+      return;
+    }
+
+    state.selectedTeam = selectedTeam;
+
+    renderSelectedTeam(selectedTeam);
+    updateSelectedTeamGames();
+
+    console.log(
+      "Equipo seleccionado:",
+      selectedTeam
+    );
+  });
+}
+
+/* ──────────────────────────────────────────────────────
+   CARGAR EQUIPOS
+────────────────────────────────────────────────────── */
+function loadTeams() {
   fetch(`${BASE}/get/teams`)
     .then(response => {
       if (!response.ok) {
         throw new Error(
-          `Error HTTP ${response.status} al cargar los equipos`
+          `Error HTTP ${response.status} al cargar equipos`
         );
       }
 
       return response.json();
     })
-    .then(jsondata => {
-      if (!Array.isArray(jsondata.teams)) {
+    .then(jsonData => {
+      if (!Array.isArray(jsonData.teams)) {
         throw new Error(
-          "La respuesta de la API no contiene una lista válida de equipos."
+          "La API no devolvió una lista válida de equipos."
         );
       }
 
-      state.teams = jsondata.teams;
+      state.teams = jsonData.teams;
+
       populateTeamSelector();
 
       console.log(
@@ -160,15 +459,75 @@ function init() {
       );
     })
     .catch(error => {
-      console.error("Error al cargar equipos:", error);
+      console.error(
+        "Error al cargar equipos:",
+        error
+      );
 
-      if (teamSelect) {
-        teamSelect.innerHTML =
-          `<option value="">No se pudieron cargar los equipos</option>`;
+      teamSelect.innerHTML =
+        `<option value="">
+          No se pudieron cargar los equipos
+        </option>`;
 
-        teamSelect.disabled = true;
-      }
+      teamSelect.disabled = true;
     });
+}
+
+/* ──────────────────────────────────────────────────────
+   CARGAR PARTIDOS
+────────────────────────────────────────────────────── */
+function loadGames() {
+  fetch(`${BASE}/get/games`)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(
+          `Error HTTP ${response.status} al cargar partidos`
+        );
+      }
+
+      return response.json();
+    })
+    .then(jsonData => {
+      if (!Array.isArray(jsonData.games)) {
+        throw new Error(
+          "La API no devolvió una lista válida de partidos."
+        );
+      }
+
+      state.games = jsonData.games;
+      state.gamesLoaded = true;
+
+      console.log(
+        `${state.games.length} partidos cargados correctamente.`
+      );
+
+      if (state.selectedTeam) {
+        updateSelectedTeamGames();
+      }
+    })
+    .catch(error => {
+      state.gamesLoaded = false;
+
+      console.error(
+        "Error al cargar partidos:",
+        error
+      );
+
+      gamesEmptyState.style.display = "block";
+      gamesEmptyState.textContent =
+        "No fue posible cargar los partidos.";
+    });
+}
+
+/* ──────────────────────────────────────────────────────
+   INICIALIZACIÓN
+────────────────────────────────────────────────────── */
+function init() {
+  configureScreenNavigation();
+  addEventToTeamSelect();
+
+  loadTeams();
+  loadGames();
 }
 
 /* Punto de entrada */

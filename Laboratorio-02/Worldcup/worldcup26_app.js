@@ -25,6 +25,9 @@ const statsBar        = document.getElementById("statsBar");
 const sectionEyebrow  = document.getElementById("sectionEyebrow");
 const citiesSection   = document.getElementById("citiesSection");
 const apiStatus       = document.getElementById("apiStatus");
+const screenButtons = document.querySelectorAll("[data-screen]");
+const screenPanels = document.querySelectorAll("[data-screen-panel]");
+const startButton = document.getElementById("startButton");
 
 /* ──────────────────────────────────────────────────────
    POBLAR SELECTOR DE EQUIPOS
@@ -56,49 +59,116 @@ function populateTeamSelector() {
    EVENTO: cambio de equipo en el selector
 ────────────────────────────────────────────────────── */
 function addEventToTeamSelect() {
-  teamSelect.addEventListener("change", (event) => {
-    const tid = teamSelect.value;
+  teamSelect.addEventListener("change", () => {
+    const teamId = teamSelect.value;
 
-    if (!tid) {
-      // si no hay equipo seleccionado, limpio la sección de partidos
+    if (!teamId) {
+      teamInfo.style.display = "none";
       return;
     }
-    state.teams.forEach(team => {
-      if (String(team.id) === tid) {
-        // si el equipo coincide con el seleccionado, muestro sus datos
-        teamInfo.style.display = "block";
-        console.log('Team', team);
-        const flag = document.getElementById("teamFlagImg");
-        const name = document.getElementById("teamName");
 
-        flag.src = team.flag;
-        flag.alt = `Bandera de ${team.name_en}`;
-        name.textContent = team.name_en;
-      }
-    });
+    const selectedTeam = state.teams.find(
+      team => String(team.id) === teamId
+    );
+
+    if (!selectedTeam) {
+      console.error("No se encontró el equipo seleccionado.");
+      teamInfo.style.display = "none";
+      return;
+    }
+
+    const flag = document.getElementById("teamFlagImg");
+    const name = document.getElementById("teamName");
+
+    flag.src = selectedTeam.flag;
+    flag.alt = `Bandera de ${selectedTeam.name_en}`;
+    name.textContent = selectedTeam.name_en;
+
+    teamInfo.style.display = "flex";
+
+    console.log("Equipo seleccionado:", selectedTeam);
   });
 }
 
+/* ──────────────────────────────────────────────────────
+   NAVEGACIÓN ENTRE LAS CINCO PANTALLAS
+────────────────────────────────────────────────────── */
+function showScreen(screenName) {
+  screenPanels.forEach(panel => {
+    const isSelected =
+      panel.dataset.screenPanel === screenName;
 
+    panel.classList.toggle("active", isSelected);
+    panel.hidden = !isSelected;
+  });
+
+  screenButtons.forEach(button => {
+    const isSelected =
+      button.dataset.screen === screenName;
+
+    button.classList.toggle("active", isSelected);
+  });
+
+  window.scrollTo({
+    top: 0,
+    behavior: "smooth"
+  });
+}
+
+function configureScreenNavigation() {
+  screenButtons.forEach(button => {
+    button.addEventListener("click", () => {
+      showScreen(button.dataset.screen);
+    });
+  });
+
+  if (startButton) {
+    startButton.addEventListener("click", () => {
+      showScreen("equipo");
+    });
+  }
+}
 
 /* ──────────────────────────────────────────────────────
    Init: carga inicial de los tres endpoints
 ────────────────────────────────────────────────────── */
-async function init() {
+function init() {
+  configureScreenNavigation();
 
-  await fetch(`${BASE}/get/teams`)
-    .then(response => response.json())
+  fetch(`${BASE}/get/teams`)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(
+          `Error HTTP ${response.status} al cargar los equipos`
+        );
+      }
+
+      return response.json();
+    })
     .then(jsondata => {
-      // guardo los datos de equipos en el estado global
+      if (!Array.isArray(jsondata.teams)) {
+        throw new Error(
+          "La respuesta de la API no contiene una lista válida de equipos."
+        );
+      }
+
       state.teams = jsondata.teams;
-      // luego de cargar los equipos, puedo poblar el selector
       populateTeamSelector();
 
+      console.log(
+        `${state.teams.length} equipos cargados correctamente.`
+      );
     })
-    .catch(err => {
-      console.error("Error al cargar equipos:", err);
-  });
+    .catch(error => {
+      console.error("Error al cargar equipos:", error);
 
+      if (teamSelect) {
+        teamSelect.innerHTML =
+          `<option value="">No se pudieron cargar los equipos</option>`;
+
+        teamSelect.disabled = true;
+      }
+    });
 }
 
 /* Punto de entrada */

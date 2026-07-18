@@ -11,9 +11,14 @@ const BASE = "https://worldcup26.ir";
 const state = {
   teams: [],
   games: [],
+  stadiums: [],
+
   selectedTeam: null,
   selectedGames: [],
-  gamesLoaded: false
+
+  gamesLoaded: false,
+  stadiumsLoaded: false,
+  stadiumsError: false
 };
 
 /* ──────────────────────────────────────────────────────
@@ -82,6 +87,15 @@ function configureScreenNavigation() {
 function getTeamById(teamId) {
   return state.teams.find(
     team => String(team.id) === String(teamId)
+  );
+}
+
+/* ──────────────────────────────────────────────────────
+   BÚSQUEDA DE ESTADIOS
+────────────────────────────────────────────────────── */
+function getStadiumById(stadiumId) {
+  return state.stadiums.find(
+    stadium => String(stadium.id) === String(stadiumId)
   );
 }
 
@@ -253,7 +267,8 @@ function getMatchPhase(game) {
     R16: "Octavos de final",
     QF: "Cuartos de final",
     SF: "Semifinal",
-    F: "Final"
+    F: "Final",
+    FINAL: "Final"
   };
 
   return {
@@ -303,6 +318,38 @@ function createMatchCard(game) {
       ? ` · Jornada ${game.matchday}`
       : "";
 
+  const stadium =
+  getStadiumById(game.stadium_id);
+
+  let stadiumName = "Pendiente de cargar";
+  let stadiumLocation =
+    `Identificador del estadio: ${game.stadium_id ?? "No disponible"}`;
+
+  if (state.stadiumsError) {
+    stadiumName = "Estadio no disponible";
+    stadiumLocation =
+      "La información de estadios no pudo cargarse.";
+  } else if (state.stadiumsLoaded && stadium) {
+    stadiumName =
+      stadium.name_en ?? stadium.fifa_name ?? "Nombre no disponible";
+
+    const city =
+      stadium.city_en ?? "Ciudad no disponible";
+
+    const country =
+      stadium.country_en ?? "País no disponible";
+
+    const formattedCapacity =
+      Number(stadium.capacity).toLocaleString("es-CR");
+
+    stadiumLocation =
+      `${city}, ${country} · Capacidad: ${formattedCapacity}`;
+  } else if (state.stadiumsLoaded && !stadium) {
+    stadiumName = "Estadio no encontrado";
+    stadiumLocation =
+      `No existe información para el estadio ${game.stadium_id}.`;
+  }
+
   const card = document.createElement("article");
 
   card.className =
@@ -350,12 +397,11 @@ function createMatchCard(game) {
           <p class="card-row-label">Estadio</p>
 
           <p class="card-row-value">
-            Pendiente de cargar
+            ${stadiumName}
           </p>
 
           <p class="card-row-sub">
-            Identificador del estadio:
-            ${game.stadium_id ?? "No disponible"}
+            ${stadiumLocation}
           </p>
         </div>
       </div>
@@ -520,6 +566,57 @@ function loadGames() {
 }
 
 /* ──────────────────────────────────────────────────────
+   CARGAR ESTADIOS
+────────────────────────────────────────────────────── */
+function loadStadiums() {
+  fetch(`${BASE}/get/stadiums`)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(
+          `Error HTTP ${response.status} al cargar estadios`
+        );
+      }
+
+      return response.json();
+    })
+    .then(jsonData => {
+      console.log("Respuesta completa de estadios:", jsonData);
+
+      if (!Array.isArray(jsonData.stadiums)) {
+        throw new Error(
+          "La API no devolvió una lista válida de estadios."
+        );
+      }
+
+      state.stadiums = jsonData.stadiums;
+      state.stadiumsLoaded = true;
+      state.stadiumsError = false;
+
+      console.log(
+        `${state.stadiums.length} estadios cargados correctamente.`
+      );
+
+      console.log(
+        "Primer estadio recibido:",
+        state.stadiums[0]
+      );
+
+      if (state.selectedTeam) {
+        renderGames();
+      }
+    })
+    .catch(error => {
+      state.stadiumsLoaded = false;
+      state.stadiumsError = true;
+
+      console.error(
+        "Error al cargar estadios:",
+        error
+      );
+    });
+}
+
+/* ──────────────────────────────────────────────────────
    INICIALIZACIÓN
 ────────────────────────────────────────────────────── */
 function init() {
@@ -528,6 +625,7 @@ function init() {
 
   loadTeams();
   loadGames();
+  loadStadiums();
 }
 
 /* Punto de entrada */

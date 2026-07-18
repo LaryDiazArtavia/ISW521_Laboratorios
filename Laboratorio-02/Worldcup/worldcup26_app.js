@@ -49,6 +49,17 @@ const screenPanels = document.querySelectorAll("[data-screen-panel]");
 const startButton = document.getElementById("startButton");
 
 /* ──────────────────────────────────────────────────────
+   SELECTORES DE LA PANTALLA 5: RESUMEN
+────────────────────────────────────────────────────── */
+const summaryEmptyState = document.getElementById("summaryEmptyState");
+const statGames = document.getElementById("statGames");
+const statCities = document.getElementById("statCities");
+const statHome = document.getElementById("statHome");
+const statAway = document.getElementById("statAway");
+const statStadiums = document.getElementById("statStadiums");
+const statCapacity = document.getElementById("statCapacity");
+
+/* ──────────────────────────────────────────────────────
    NAVEGACIÓN ENTRE LAS CINCO PANTALLAS
 ────────────────────────────────────────────────────── */
 function showScreen(screenName) {
@@ -214,7 +225,21 @@ function clearSelectedTeam() {
   stadiumsEmptyState.style.display = "block";
   stadiumsEmptyState.textContent =
     "Seleccione un equipo para consultar las ciudades y los estadios de su itinerario.";
-}
+
+  statsBar.style.display = "none";
+
+  summaryEmptyState.style.display = "block";
+  summaryEmptyState.textContent =
+    "Seleccione un equipo para generar el resumen.";
+
+  statGames.textContent = "—";
+  statCities.textContent = "—";
+  statHome.textContent = "—";
+  statAway.textContent = "—";
+  statStadiums.textContent = "—";
+  statCapacity.textContent = "—";
+
+  }
 
 /* ──────────────────────────────────────────────────────
    FILTRAR Y ORDENAR LOS PARTIDOS DEL EQUIPO
@@ -638,6 +663,114 @@ function renderStadiumsScreen() {
 }
 
 /* ──────────────────────────────────────────────────────
+   MOSTRAR RESUMEN DEL RECORRIDO
+────────────────────────────────────────────────────── */
+function renderSummaryScreen() {
+  if (!state.selectedTeam) {
+    statsBar.style.display = "none";
+    summaryEmptyState.style.display = "block";
+    summaryEmptyState.textContent =
+      "Seleccione un equipo para generar el resumen.";
+
+    return;
+  }
+
+  if (!state.gamesLoaded) {
+    statsBar.style.display = "none";
+    summaryEmptyState.style.display = "block";
+    summaryEmptyState.textContent =
+      "Los partidos todavía se están cargando.";
+
+    return;
+  }
+
+  const selectedTeamId =
+    String(state.selectedTeam.id);
+
+  const homeGames = state.selectedGames.filter(
+    game =>
+      String(game.home_team_id) === selectedTeamId
+  ).length;
+
+  const awayGames = state.selectedGames.filter(
+    game =>
+      String(game.away_team_id) === selectedTeamId
+  ).length;
+
+  statGames.textContent =
+    String(state.selectedGames.length);
+
+  statHome.textContent =
+    String(homeGames);
+
+  statAway.textContent =
+    String(awayGames);
+
+  /*
+   * Las estadísticas de ciudades, estadios y capacidad
+   * dependen de que /get/stadiums haya cargado.
+   */
+  if (!state.stadiumsLoaded || state.stadiumsError) {
+    statCities.textContent = "—";
+    statStadiums.textContent = "—";
+    statCapacity.textContent = "—";
+
+    statsBar.style.display = "grid";
+    summaryEmptyState.style.display = "none";
+
+    return;
+  }
+
+  const uniqueStadiumsMap = new Map();
+
+  state.selectedGames.forEach(game => {
+    const stadium =
+      getStadiumById(game.stadium_id);
+
+    if (stadium) {
+      uniqueStadiumsMap.set(
+        String(stadium.id),
+        stadium
+      );
+    }
+  });
+
+  const uniqueStadiums =
+    [...uniqueStadiumsMap.values()];
+
+  const uniqueCities = new Set(
+    uniqueStadiums.map(stadium =>
+      stadium.city_en ?? "Ciudad no disponible"
+    )
+  );
+
+  const totalCapacity = uniqueStadiums.reduce(
+    (total, stadium) =>
+      total + Number(stadium.capacity || 0),
+    0
+  );
+
+  const averageCapacity =
+    uniqueStadiums.length > 0
+      ? Math.round(
+          totalCapacity / uniqueStadiums.length
+        )
+      : 0;
+
+  statCities.textContent =
+    String(uniqueCities.size);
+
+  statStadiums.textContent =
+    String(uniqueStadiums.length);
+
+  statCapacity.textContent =
+    averageCapacity.toLocaleString("es-CR");
+
+  statsBar.style.display = "grid";
+  summaryEmptyState.style.display = "none";
+}
+
+/* ──────────────────────────────────────────────────────
    EVENTO DEL SELECTOR
 ────────────────────────────────────────────────────── */
 function addEventToTeamSelect() {
@@ -666,6 +799,7 @@ function addEventToTeamSelect() {
     renderSelectedTeam(selectedTeam);
     updateSelectedTeamGames();
     renderStadiumsScreen();
+    renderSummaryScreen();
 
     console.log(
       "Equipo seleccionado:",
@@ -749,6 +883,7 @@ function loadGames() {
       if (state.selectedTeam) {
         updateSelectedTeamGames();
         renderStadiumsScreen();
+        renderSummaryScreen();
       }
     })
     .catch(error => {
@@ -804,6 +939,7 @@ function loadStadiums() {
       if (state.selectedTeam) {
         renderGames();
         renderStadiumsScreen();
+        renderSummaryScreen();
       }
     })
     .catch(error => {
@@ -818,6 +954,7 @@ function loadStadiums() {
       if (state.selectedTeam) {
         renderGames();
         renderStadiumsScreen();
+        renderSummaryScreen();
       }
     });
 }

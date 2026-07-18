@@ -662,23 +662,6 @@ footer code {
   font-size: 1.8rem;
 }
 
-/* ═══ RESPONSIVE ════════════════════════════════════════ */
-@media (max-width: 600px) {
-  .stats-bar { flex-direction: column; gap: 0; }
-  .selector-panel { flex-direction: column; gap: 1rem; }
-  header { gap: 1rem; }
-  .header-badge { display: none; }
-
-  .screen-nav {
-      grid-template-columns: 1fr;
-    }
-
-    .team-info {
-      align-items: flex-start;
-      flex-direction: column;
-    }
-}
-
 /* ═══════════════════════════════════════════════════════
    PANTALLA 4: CIUDADES Y ESTADIOS
 ═══════════════════════════════════════════════════════ */
@@ -853,6 +836,79 @@ footer code {
   font-size: 0.55rem;
 }
 
+/* ═══════════════════════════════════════════════════════
+   PANTALLA 5: RESUMEN
+═══════════════════════════════════════════════════════ */
+
+#screen-resumen .stats-bar {
+  display: none;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+
+  background: transparent;
+  border: none;
+}
+
+#screen-resumen .stat-cell {
+  min-height: 130px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+
+  padding: 1.5rem;
+
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+
+  transition:
+    transform var(--transition),
+    border-color var(--transition);
+}
+
+#screen-resumen .stat-cell:hover {
+  transform: translateY(-3px);
+  border-color: var(--gold-dim);
+}
+
+#screen-resumen .stat-num {
+  margin-bottom: 0.45rem;
+
+  color: var(--gold);
+
+  font-family: var(--font-mono);
+  font-size: clamp(1.6rem, 3vw, 2.25rem);
+  font-weight: 700;
+}
+
+#screen-resumen .stat-label {
+  color: var(--text-2);
+
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ═══ RESPONSIVE ════════════════════════════════════════ */
+@media (max-width: 600px) {
+  .stats-bar { flex-direction: column; gap: 0; }
+  .selector-panel { flex-direction: column; gap: 1rem; }
+  header { gap: 1rem; }
+  .header-badge { display: none; }
+
+  .screen-nav {
+      grid-template-columns: 1fr;
+    }
+
+    .team-info {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .01ms !important;
@@ -872,6 +928,18 @@ footer code {
   }
 
   .stadium-card-data {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 800px) {
+  #screen-resumen .stats-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 500px) {
+  #screen-resumen .stats-bar {
     grid-template-columns: 1fr;
   }
 }

@@ -34,6 +34,12 @@ const sectionEyebrow = document.getElementById("sectionEyebrow");
 const eyebrowCount = document.getElementById("eyebrowCount");
 const gamesEmptyState = document.getElementById("gamesEmptyState");
 
+const stadiumsEmptyState = document.getElementById("stadiumsEmptyState");
+const stadiumsGrid = document.getElementById("stadiumsGrid");
+const citiesChips = document.getElementById("citiesChips");
+const alertBanner = document.getElementById("alertBanner");
+const alertMsg = document.getElementById("alertMsg");
+
 const statsBar = document.getElementById("statsBar");
 const citiesSection = document.getElementById("citiesSection");
 const apiStatus = document.getElementById("apiStatus");
@@ -198,6 +204,16 @@ function clearSelectedTeam() {
   gamesEmptyState.style.display = "block";
   gamesEmptyState.textContent =
     "Seleccione primero un equipo para consultar su itinerario.";
+
+  stadiumsGrid.innerHTML = "";
+  citiesChips.innerHTML = "";
+
+  citiesSection.style.display = "none";
+  alertBanner.style.display = "none";
+
+  stadiumsEmptyState.style.display = "block";
+  stadiumsEmptyState.textContent =
+    "Seleccione un equipo para consultar las ciudades y los estadios de su itinerario.";
 }
 
 /* ──────────────────────────────────────────────────────
@@ -440,6 +456,188 @@ function renderGames() {
 }
 
 /* ──────────────────────────────────────────────────────
+   CREAR TARJETA DE ESTADIO
+────────────────────────────────────────────────────── */
+function createStadiumCard(stadium, gamesCount) {
+  const card = document.createElement("article");
+
+  card.className = "stadium-card";
+
+  const stadiumName =
+    stadium.name_en ??
+    stadium.fifa_name ??
+    "Estadio sin nombre";
+
+  const city =
+    stadium.city_en ?? "Ciudad no disponible";
+
+  const country =
+    stadium.country_en ?? "País no disponible";
+
+  const capacity =
+    Number(stadium.capacity).toLocaleString("es-CR");
+
+  card.innerHTML = `
+    <div class="stadium-card-header">
+      <span class="stadium-card-icon" aria-hidden="true">
+        🏟️
+      </span>
+
+      <div>
+        <h3>${stadiumName}</h3>
+
+        <p>
+          ${city}, ${country}
+        </p>
+      </div>
+    </div>
+
+    <div class="stadium-card-data">
+      <div>
+        <span class="stadium-data-label">Capacidad</span>
+        <strong>${capacity}</strong>
+      </div>
+
+      <div>
+        <span class="stadium-data-label">
+          Partidos del equipo
+        </span>
+
+       <strong>
+        ${gamesCount}
+        ${gamesCount === 1 ? "partido" : "partidos"}
+      </strong>
+      </div>
+    </div>
+  `;
+
+  return card;
+}
+
+/* ──────────────────────────────────────────────────────
+   MOSTRAR CIUDADES Y ESTADIOS DEL EQUIPO
+────────────────────────────────────────────────────── */
+function renderStadiumsScreen() {
+  stadiumsGrid.innerHTML = "";
+  citiesChips.innerHTML = "";
+
+  alertBanner.style.display = "none";
+  citiesSection.style.display = "none";
+
+  if (!state.selectedTeam) {
+    stadiumsEmptyState.style.display = "block";
+    stadiumsEmptyState.textContent =
+      "Seleccione un equipo para consultar las ciudades y los estadios de su itinerario.";
+
+    return;
+  }
+
+  if (!state.gamesLoaded) {
+    stadiumsEmptyState.style.display = "block";
+    stadiumsEmptyState.textContent =
+      "Los partidos todavía se están cargando.";
+
+    return;
+  }
+
+  if (state.stadiumsError) {
+    stadiumsEmptyState.style.display = "block";
+    stadiumsEmptyState.textContent =
+      "Los partidos están disponibles, pero no fue posible cargar los estadios.";
+
+    alertBanner.style.display = "flex";
+
+    alertMsg.textContent =
+      "La petición a /get/stadiums falló. Los partidos permanecen disponibles.";
+
+    return;
+  }
+
+  if (!state.stadiumsLoaded) {
+    stadiumsEmptyState.style.display = "block";
+    stadiumsEmptyState.textContent =
+      "La información de estadios todavía se está cargando.";
+
+    return;
+  }
+
+  const stadiumGameCounts = new Map();
+
+  state.selectedGames.forEach(game => {
+    const stadiumId = String(game.stadium_id);
+
+    const currentCount =
+      stadiumGameCounts.get(stadiumId) ?? 0;
+
+    stadiumGameCounts.set(
+      stadiumId,
+      currentCount + 1
+    );
+  });
+
+  const selectedStadiums = [];
+
+  stadiumGameCounts.forEach((gamesCount, stadiumId) => {
+    const stadium =
+      getStadiumById(stadiumId);
+
+    if (stadium) {
+      selectedStadiums.push({
+        stadium,
+        gamesCount
+      });
+    }
+  });
+
+  selectedStadiums.sort((itemA, itemB) => {
+    const cityA =
+      itemA.stadium.city_en ?? "";
+
+    const cityB =
+      itemB.stadium.city_en ?? "";
+
+    return cityA.localeCompare(cityB);
+  });
+
+  if (selectedStadiums.length === 0) {
+    stadiumsEmptyState.style.display = "block";
+    stadiumsEmptyState.textContent =
+      "No se encontraron estadios para el equipo seleccionado.";
+
+    return;
+  }
+
+  stadiumsEmptyState.style.display = "none";
+  citiesSection.style.display = "block";
+
+  const uniqueCities = [
+    ...new Set(
+      selectedStadiums.map(item =>
+        item.stadium.city_en ?? "Ciudad no disponible"
+      )
+    )
+  ];
+
+  uniqueCities.forEach(city => {
+    const chip = document.createElement("span");
+
+    chip.className = "city-chip";
+    chip.textContent = city;
+
+    citiesChips.appendChild(chip);
+  });
+
+  selectedStadiums.forEach(item => {
+    const card = createStadiumCard(
+      item.stadium,
+      item.gamesCount
+    );
+
+    stadiumsGrid.appendChild(card);
+  });
+}
+
+/* ──────────────────────────────────────────────────────
    EVENTO DEL SELECTOR
 ────────────────────────────────────────────────────── */
 function addEventToTeamSelect() {
@@ -467,6 +665,7 @@ function addEventToTeamSelect() {
 
     renderSelectedTeam(selectedTeam);
     updateSelectedTeamGames();
+    renderStadiumsScreen();
 
     console.log(
       "Equipo seleccionado:",
@@ -549,6 +748,7 @@ function loadGames() {
 
       if (state.selectedTeam) {
         updateSelectedTeamGames();
+        renderStadiumsScreen();
       }
     })
     .catch(error => {
@@ -603,6 +803,7 @@ function loadStadiums() {
 
       if (state.selectedTeam) {
         renderGames();
+        renderStadiumsScreen();
       }
     })
     .catch(error => {
@@ -613,6 +814,11 @@ function loadStadiums() {
         "Error al cargar estadios:",
         error
       );
+
+      if (state.selectedTeam) {
+        renderGames();
+        renderStadiumsScreen();
+      }
     });
 }
 

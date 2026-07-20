@@ -946,6 +946,59 @@ footer code {
   font-size: 0.78rem;
 }
 
+/* ═══════════════════════════════════════════════════════
+   AVISO DE DATOS GUARDADOS
+═══════════════════════════════════════════════════════ */
+
+.offline-banner {
+  max-width: 1100px;
+  margin: 1rem auto 0;
+  padding: 1rem clamp(1rem, 4vw, 2.5rem);
+
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+
+  color: var(--text-1);
+}
+
+.offline-banner[hidden] {
+  display: none;
+}
+
+.offline-icon {
+  display: grid;
+  place-items: center;
+
+  flex-shrink: 0;
+
+  width: 38px;
+  height: 38px;
+
+  background: var(--gold-glow);
+  border: 1px solid var(--gold-dim);
+  border-radius: var(--radius-sm);
+}
+
+.offline-banner strong {
+  display: block;
+  margin-bottom: 0.25rem;
+
+  color: var(--gold);
+  font-size: 0.85rem;
+}
+
+.offline-banner p {
+  margin: 0;
+
+  color: var(--text-2);
+  font-size: 0.78rem;
+}
+
 /* ═══ RESPONSIVE ════════════════════════════════════════ */
 @media (max-width: 600px) {
   .stats-bar { flex-direction: column; gap: 0; }

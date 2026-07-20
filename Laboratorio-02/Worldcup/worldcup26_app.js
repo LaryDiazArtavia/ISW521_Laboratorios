@@ -26,7 +26,13 @@ const state = {
 
   gamesLoaded: false,
   stadiumsLoaded: false,
-  stadiumsError: false
+  stadiumsError: false,
+
+  cacheSources: {
+    teams: null,
+    games: null,
+    stadiums: null
+  }
 };
 
 /* ──────────────────────────────────────────────────────
@@ -64,6 +70,12 @@ const resilienceTitle = document.getElementById("resilienceTitle");
 const resilienceMessage = document.getElementById("resilienceMessage");
 
 /* ──────────────────────────────────────────────────────
+   SELECTORES DEL AVISO DE DATOS GUARDADOS
+────────────────────────────────────────────────────── */
+const offlineBanner = document.getElementById("offlineBanner");
+const offlineMessage = document.getElementById("offlineMessage");
+
+/* ──────────────────────────────────────────────────────
    SELECTORES DE LA PANTALLA 5: RESUMEN
 ────────────────────────────────────────────────────── */
 const summaryEmptyState = document.getElementById("summaryEmptyState");
@@ -83,6 +95,134 @@ const RETRY_DELAYS = [
   4000,
   8000
 ];
+
+/* ──────────────────────────────────────────────────────
+   CLAVES DE LOCALSTORAGE
+────────────────────────────────────────────────────── */
+const CACHE_KEYS = {
+  teams: "worldcup26_teams",
+  games: "worldcup26_games",
+  stadiums: "worldcup26_stadiums"
+};
+
+/* ──────────────────────────────────────────────────────
+   GUARDAR UNA RESPUESTA EXITOSA
+────────────────────────────────────────────────────── */
+function saveToCache(cacheKey, data) {
+  const cacheData = {
+    savedAt: new Date().toISOString(),
+    data
+  };
+
+  try {
+    localStorage.setItem(
+      cacheKey,
+      JSON.stringify(cacheData)
+    );
+
+    return true;
+  } catch (error) {
+    console.warn(
+      `No fue posible guardar ${cacheKey} en localStorage:`,
+      error
+    );
+
+    return false;
+  }
+}
+
+/* ──────────────────────────────────────────────────────
+   RECUPERAR DATOS GUARDADOS
+────────────────────────────────────────────────────── */
+function getFromCache(cacheKey) {
+  try {
+    const storedValue =
+      localStorage.getItem(cacheKey);
+
+    if (!storedValue) {
+      return null;
+    }
+
+    const parsedValue =
+      JSON.parse(storedValue);
+
+    if (
+      !parsedValue ||
+      !Array.isArray(parsedValue.data) ||
+      !parsedValue.savedAt
+    ) {
+      return null;
+    }
+
+    return parsedValue;
+  } catch (error) {
+    console.warn(
+      `No fue posible leer ${cacheKey} desde localStorage:`,
+      error
+    );
+
+    return null;
+  }
+}
+
+/* ──────────────────────────────────────────────────────
+   FORMATEAR LA FECHA DE LOS DATOS GUARDADOS
+────────────────────────────────────────────────────── */
+function formatCacheDate(savedAt) {
+  const date = new Date(savedAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return "fecha desconocida";
+  }
+
+  return new Intl.DateTimeFormat("es-CR", {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(date);
+}
+
+/* ──────────────────────────────────────────────────────
+   ACTUALIZAR EL AVISO DE DATOS GUARDADOS
+────────────────────────────────────────────────────── */
+function updateOfflineBanner() {
+  const resourceLabels = {
+    teams: "equipos",
+    games: "partidos",
+    stadiums: "estadios"
+  };
+
+  const cachedResources =
+    Object.entries(state.cacheSources)
+      .filter(([, savedAt]) => savedAt)
+      .map(([resourceName, savedAt]) => {
+        return (
+          `${resourceLabels[resourceName]} ` +
+          `(${formatCacheDate(savedAt)})`
+        );
+      });
+
+  if (cachedResources.length === 0) {
+    offlineBanner.hidden = true;
+    return;
+  }
+
+  offlineMessage.textContent =
+    "Datos no actualizados utilizados: " +
+    cachedResources.join(", ") +
+    ".";
+
+  offlineBanner.hidden = false;
+}
+
+function markResourceAsCached(resourceName, savedAt) {
+  state.cacheSources[resourceName] = savedAt;
+  updateOfflineBanner();
+}
+
+function markResourceAsFresh(resourceName) {
+  state.cacheSources[resourceName] = null;
+  updateOfflineBanner();
+}
 
 /* ──────────────────────────────────────────────────────
    MOSTRAR Y OCULTAR EL BANNER
@@ -976,6 +1116,12 @@ function loadTeams() {
 
       state.teams = jsonData.teams;
 
+      saveToCache(
+        CACHE_KEYS.teams,
+        state.teams
+      );
+
+      markResourceAsFresh("teams");
       populateTeamSelector();
 
       console.log(
@@ -988,6 +1134,26 @@ function loadTeams() {
         error
       );
 
+      const cachedTeams =
+        getFromCache(CACHE_KEYS.teams);
+
+      if (cachedTeams && Array.isArray(cachedTeams.data)) {
+        state.teams = cachedTeams.data;
+
+        markResourceAsCached(
+          "teams",
+          cachedTeams.savedAt
+        );
+
+        populateTeamSelector();
+
+        console.warn(
+          "Se utilizaron equipos guardados en localStorage."
+        );
+
+        return;
+      }
+
       teamSelect.innerHTML =
         `<option value="">
           No se pudieron cargar los equipos
@@ -998,7 +1164,7 @@ function loadTeams() {
 }
 
 /* ──────────────────────────────────────────────────────
-   CARGAR PARTIDOS
+   CARGAR PARTIDOS CON RESPALDO EN LOCALSTORAGE
 ────────────────────────────────────────────────────── */
 function loadGames() {
   fetch(`${BASE}/get/games`)
@@ -1021,6 +1187,13 @@ function loadGames() {
       state.games = jsonData.games;
       state.gamesLoaded = true;
 
+      saveToCache(
+        CACHE_KEYS.games,
+        state.games
+      );
+
+      markResourceAsFresh("games");
+
       console.log(
         `${state.games.length} partidos cargados correctamente.`
       );
@@ -1032,21 +1205,47 @@ function loadGames() {
       }
     })
     .catch(error => {
-      state.gamesLoaded = false;
-
       console.error(
-        "Error al cargar partidos:",
+        "Error al cargar partidos desde la API:",
         error
       );
 
+      const cachedGames =
+        getFromCache(CACHE_KEYS.games);
+
+      if (cachedGames && Array.isArray(cachedGames.data)) {
+        state.games = cachedGames.data;
+        state.gamesLoaded = true;
+
+        markResourceAsCached(
+          "games",
+          cachedGames.savedAt
+        );
+
+        console.warn(
+          "Se utilizaron partidos guardados en localStorage."
+        );
+
+        if (state.selectedTeam) {
+          updateSelectedTeamGames();
+          renderStadiumsScreen();
+          renderSummaryScreen();
+        }
+
+        return;
+      }
+
+      state.games = [];
+      state.gamesLoaded = false;
+
       gamesEmptyState.style.display = "block";
       gamesEmptyState.textContent =
-        "No fue posible cargar los partidos.";
+        "No fue posible cargar los partidos y no existen datos guardados.";
     });
 }
 
 /* ──────────────────────────────────────────────────────
-   CARGAR ESTADIOS CON REINTENTOS
+   CARGAR ESTADIOS CON REINTENTOS Y LOCALSTORAGE
 ────────────────────────────────────────────────────── */
 function loadStadiums() {
   state.stadiumsError = false;
@@ -1066,6 +1265,12 @@ function loadStadiums() {
       state.stadiumsLoaded = true;
       state.stadiumsError = false;
 
+      saveToCache(
+        CACHE_KEYS.stadiums,
+        state.stadiums
+      );
+
+      markResourceAsFresh("stadiums");
       hideResilienceBanner();
 
       console.log(
@@ -1079,17 +1284,49 @@ function loadStadiums() {
       }
     })
     .catch(error => {
-      state.stadiumsLoaded = false;
-      state.stadiumsError = true;
-
       console.error(
-        "Error definitivo al cargar estadios:",
+        "Error al cargar estadios desde la API:",
         error
       );
 
+      const cachedStadiums =
+        getFromCache(CACHE_KEYS.stadiums);
+
+      if (
+        cachedStadiums &&
+        Array.isArray(cachedStadiums.data)
+      ) {
+        state.stadiums = cachedStadiums.data;
+        state.stadiumsLoaded = true;
+        state.stadiumsError = false;
+
+        markResourceAsCached(
+          "stadiums",
+          cachedStadiums.savedAt
+        );
+
+        hideResilienceBanner();
+
+        console.warn(
+          "Se utilizaron estadios guardados en localStorage."
+        );
+
+        if (state.selectedTeam) {
+          renderGames();
+          renderStadiumsScreen();
+          renderSummaryScreen();
+        }
+
+        return;
+      }
+
+      state.stadiums = [];
+      state.stadiumsLoaded = false;
+      state.stadiumsError = true;
+
       showResilienceBanner(
         "No se pudieron cargar los estadios",
-        "Se agotaron los reintentos. Los partidos continúan disponibles."
+        "Se agotaron los reintentos y no existen datos guardados."
       );
 
       if (state.selectedTeam) {

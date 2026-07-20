@@ -5,6 +5,14 @@
 ────────────────────────────────────────────────────── */
 const BASE = "https://worldcup26.ir";
 
+/*
+ * SOLO PARA PRUEBAS:
+ * null = funcionamiento normal
+ * 429  = simular demasiadas solicitudes
+ * 500  = simular error interno
+ */
+const TEST_HTTP_STATUS = null;
+
 /* ──────────────────────────────────────────────────────
    ESTADO DE LA APLICACIÓN
 ────────────────────────────────────────────────────── */
@@ -49,6 +57,13 @@ const screenPanels = document.querySelectorAll("[data-screen-panel]");
 const startButton = document.getElementById("startButton");
 
 /* ──────────────────────────────────────────────────────
+   SELECTORES DEL BANNER DE RESILIENCIA
+────────────────────────────────────────────────────── */
+const resilienceBanner = document.getElementById("resilienceBanner");
+const resilienceTitle = document.getElementById("resilienceTitle");
+const resilienceMessage = document.getElementById("resilienceMessage");
+
+/* ──────────────────────────────────────────────────────
    SELECTORES DE LA PANTALLA 5: RESUMEN
 ────────────────────────────────────────────────────── */
 const summaryEmptyState = document.getElementById("summaryEmptyState");
@@ -58,6 +73,136 @@ const statHome = document.getElementById("statHome");
 const statAway = document.getElementById("statAway");
 const statStadiums = document.getElementById("statStadiums");
 const statCapacity = document.getElementById("statCapacity");
+
+/* ──────────────────────────────────────────────────────
+   CONFIGURACIÓN DE REINTENTOS
+────────────────────────────────────────────────────── */
+const RETRY_DELAYS = [
+  1000,
+  2000,
+  4000,
+  8000
+];
+
+/* ──────────────────────────────────────────────────────
+   MOSTRAR Y OCULTAR EL BANNER
+────────────────────────────────────────────────────── */
+function showResilienceBanner(title, message) {
+  resilienceTitle.textContent = title;
+  resilienceMessage.textContent = message;
+  resilienceBanner.hidden = false;
+}
+
+function hideResilienceBanner() {
+  resilienceBanner.hidden = true;
+}
+
+/* ──────────────────────────────────────────────────────
+   COUNTDOWN VISIBLE
+────────────────────────────────────────────────────── */
+function runRetryCountdown(seconds, endpointName, statusCode) {
+  return new Promise(resolve => {
+    let remainingSeconds = seconds;
+
+    const updateMessage = () => {
+      showResilienceBanner(
+        `Error HTTP ${statusCode} en ${endpointName}`,
+        `Nuevo intento en ${remainingSeconds} segundo${
+          remainingSeconds === 1 ? "" : "s"
+        }.`
+      );
+    };
+
+    updateMessage();
+
+    const countdownInterval = setInterval(() => {
+      remainingSeconds -= 1;
+
+      if (remainingSeconds <= 0) {
+        clearInterval(countdownInterval);
+
+        showResilienceBanner(
+          `Reintentando ${endpointName}`,
+          "Realizando una nueva petición..."
+        );
+
+        resolve();
+        return;
+      }
+
+      updateMessage();
+    }, 1000);
+  });
+}
+
+/* ──────────────────────────────────────────────────────
+   FETCH CON REINTENTOS PARA 429 Y 500
+────────────────────────────────────────────────────── */
+function fetchJsonWithRetry(
+  endpoint,
+  endpointName,
+  attempt = 0
+) {
+    const requestUrl =
+    TEST_HTTP_STATUS === 429 || TEST_HTTP_STATUS === 500
+      ? `http://localhost:3001/status/${TEST_HTTP_STATUS}`
+      : `${BASE}${endpoint}`;
+
+  return fetch(requestUrl)
+    .then(response => {
+      if (response.ok) {
+        hideResilienceBanner();
+        return response.json();
+      }
+
+      const isRetryable =
+        response.status === 429 ||
+        response.status === 500;
+
+      if (!isRetryable) {
+        throw new Error(
+          `Error HTTP ${response.status} en ${endpointName}`
+        );
+      }
+
+      if (attempt >= RETRY_DELAYS.length) {
+        throw new Error(
+          `Se agotaron los reintentos para ${endpointName}. ` +
+          `Último estado HTTP: ${response.status}`
+        );
+      }
+
+      const retryAfterHeader =
+        Number(response.headers.get("Retry-After"));
+
+      const delayMilliseconds =
+        response.status === 429 &&
+        Number.isFinite(retryAfterHeader) &&
+        retryAfterHeader > 0
+          ? retryAfterHeader * 1000
+          : RETRY_DELAYS[attempt];
+
+      const delaySeconds =
+        Math.ceil(delayMilliseconds / 1000);
+
+      console.warn(
+        `${endpointName} devolvió HTTP ${response.status}. ` +
+        `Reintento ${attempt + 1} en ${delaySeconds}s.`
+      );
+
+      return runRetryCountdown(
+        delaySeconds,
+        endpointName,
+        response.status
+      ).then(() =>
+        fetchJsonWithRetry(
+          endpoint,
+          endpointName,
+          attempt + 1
+        )
+      );
+    });
+}
 
 /* ──────────────────────────────────────────────────────
    NAVEGACIÓN ENTRE LAS CINCO PANTALLAS
@@ -901,22 +1046,16 @@ function loadGames() {
 }
 
 /* ──────────────────────────────────────────────────────
-   CARGAR ESTADIOS
+   CARGAR ESTADIOS CON REINTENTOS
 ────────────────────────────────────────────────────── */
 function loadStadiums() {
-  fetch(`${BASE}/get/stadiums`)
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(
-          `Error HTTP ${response.status} al cargar estadios`
-        );
-      }
+  state.stadiumsError = false;
 
-      return response.json();
-    })
+  fetchJsonWithRetry(
+    "/get/stadiums",
+    "estadios"
+  )
     .then(jsonData => {
-      console.log("Respuesta completa de estadios:", jsonData);
-
       if (!Array.isArray(jsonData.stadiums)) {
         throw new Error(
           "La API no devolvió una lista válida de estadios."
@@ -927,13 +1066,10 @@ function loadStadiums() {
       state.stadiumsLoaded = true;
       state.stadiumsError = false;
 
-      console.log(
-        `${state.stadiums.length} estadios cargados correctamente.`
-      );
+      hideResilienceBanner();
 
       console.log(
-        "Primer estadio recibido:",
-        state.stadiums[0]
+        `${state.stadiums.length} estadios cargados correctamente.`
       );
 
       if (state.selectedTeam) {
@@ -947,8 +1083,13 @@ function loadStadiums() {
       state.stadiumsError = true;
 
       console.error(
-        "Error al cargar estadios:",
+        "Error definitivo al cargar estadios:",
         error
+      );
+
+      showResilienceBanner(
+        "No se pudieron cargar los estadios",
+        "Se agotaron los reintentos. Los partidos continúan disponibles."
       );
 
       if (state.selectedTeam) {

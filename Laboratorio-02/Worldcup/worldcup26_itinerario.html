@@ -74,6 +74,29 @@
 </nav>
 
 <!-- ═══════════════════════════════════════════════════════
+     ESTADO DE REINTENTOS Y ERRORES HTTP
+═══════════════════════════════════════════════════════ -->
+<div
+  class="resilience-banner"
+  id="resilienceBanner"
+  role="status"
+  aria-live="polite"
+  hidden>
+
+  <span class="resilience-icon" aria-hidden="true">⏳</span>
+
+  <div>
+    <strong id="resilienceTitle">
+      Reintentando petición
+    </strong>
+
+    <p id="resilienceMessage">
+      Esperando para realizar un nuevo intento.
+    </p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
      MAIN
 ═══════════════════════════════════════════════════════ -->
 <main>

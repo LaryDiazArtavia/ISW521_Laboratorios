@@ -112,8 +112,6 @@
     type="button"
     class="screen-nav-button"
     data-screen="analitica"
-    disabled
-    title="Pendiente de implementar"
   >
     4. Analítica
   </button>
@@ -883,6 +881,237 @@
       id="muroGrid"
       aria-live="polite"
       aria-label="Ranking de equipos con menos goles recibidos"
+    >
+    </div>
+
+  </section>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════
+     PANTALLA 2.4: ANALÍTICA DE ESTADIOS
+════════════════════════════════════════════════════ -->
+<section
+  class="app-screen"
+  id="screen-analitica"
+  data-screen-panel="analitica"
+  aria-labelledby="analiticaTitle"
+  hidden
+>
+
+  <!-- Presentación -->
+  <div class="route-hero analitica-hero">
+
+    <div>
+      <span class="screen-number">
+        Pantalla 2.4
+      </span>
+
+      <h2 id="analiticaTitle">
+        Analítica de Estadios
+      </h2>
+
+      <p>
+        Compara los 16 estadios del Mundial según su capacidad,
+        cantidad de partidos albergados y asistencia potencial total.
+      </p>
+    </div>
+
+    <div class="analitica-total-box">
+      <span>
+        Estadios analizados
+      </span>
+
+      <strong id="analiticaTotal">
+        0
+      </strong>
+    </div>
+
+  </div>
+
+  <!-- Resumen -->
+  <section
+    class="route-section"
+    aria-labelledby="analiticaResumenTitle"
+  >
+
+    <div class="section-heading">
+
+      <div>
+        <span class="section-kicker">
+          Resumen general
+        </span>
+
+        <h3 id="analiticaResumenTitle">
+          Capacidad y asistencia potencial
+        </h3>
+      </div>
+
+      <p>
+        Datos cruzados entre
+        <code>/get/stadiums</code>
+        y
+        <code>/get/games</code>.
+      </p>
+
+    </div>
+
+    <div
+      class="analitica-summary"
+      id="analiticaSummary"
+    >
+
+      <article class="analitica-summary-card">
+        <span>
+          Estadios
+        </span>
+
+        <strong id="analiticaStatStadiums">
+          —
+        </strong>
+      </article>
+
+      <article class="analitica-summary-card">
+        <span>
+          Partidos asignados
+        </span>
+
+        <strong id="analiticaStatGames">
+          —
+        </strong>
+      </article>
+
+      <article class="analitica-summary-card">
+        <span>
+          Mayor asistencia potencial
+        </span>
+
+        <strong id="analiticaStatPotential">
+          —
+        </strong>
+      </article>
+
+    </div>
+
+  </section>
+
+  <!-- Gráfica -->
+  <section
+    class="route-section"
+    aria-labelledby="analiticaChartTitle"
+  >
+
+    <div class="section-heading">
+
+      <div>
+        <span class="section-kicker">
+          Gráfica comparativa
+        </span>
+
+        <h3 id="analiticaChartTitle">
+          Capacidad frente a partidos albergados
+        </h3>
+      </div>
+
+      <p>
+        Las barras se normalizan de forma independiente para que
+        ambas medidas puedan compararse visualmente.
+      </p>
+
+    </div>
+
+    <!-- Aviso de carga o reintento de partidos -->
+    <div
+      class="analitica-waiting"
+      id="analiticaWaiting"
+      role="status"
+      aria-live="polite"
+      hidden
+    >
+
+      <span
+        class="status-icon"
+        aria-hidden="true"
+      >
+        ⏳
+      </span>
+
+      <div>
+        <strong id="analiticaWaitingTitle">
+          Esperando datos de partidos
+        </strong>
+
+        <p id="analiticaWaitingMessage">
+          Los estadios permanecen visibles mientras se intenta
+          recuperar la información de partidos.
+        </p>
+      </div>
+
+    </div>
+
+    <!-- Leyenda -->
+    <div class="analitica-legend">
+
+      <span>
+        <i class="legend-capacity"></i>
+        Capacidad
+      </span>
+
+      <span>
+        <i class="legend-games"></i>
+        Partidos albergados
+      </span>
+
+    </div>
+
+    <!-- Estado inicial -->
+    <div
+      class="empty-state"
+      id="analiticaEmptyState"
+    >
+      Cargando los estadios...
+    </div>
+
+    <!-- Gráfica construida con JavaScript -->
+    <div
+      class="analitica-chart"
+      id="analiticaChart"
+      aria-live="polite"
+      aria-label="Gráfica de capacidad y partidos por estadio"
+    >
+    </div>
+
+  </section>
+
+  <!-- Ranking -->
+  <section
+    class="route-section"
+    aria-labelledby="analiticaRankingTitle"
+  >
+
+    <div class="section-heading">
+
+      <div>
+        <span class="section-kicker">
+          Ranking
+        </span>
+
+        <h3 id="analiticaRankingTitle">
+          Estadios por asistencia potencial
+        </h3>
+      </div>
+
+      <p>
+        Asistencia potencial =
+        <code>capacity × partidos</code>.
+      </p>
+
+    </div>
+
+    <div
+      class="analitica-ranking"
+      id="analiticaRanking"
+      aria-live="polite"
     >
     </div>
 

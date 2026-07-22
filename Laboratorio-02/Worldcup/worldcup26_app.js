@@ -40,6 +40,25 @@ const TEAM_BACKGROUND_RETRY_DELAYS = [
 let teamsBackgroundRetryTimer = null;
 let teamsRequestInProgress = false;
 
+/*
+ * Reintentos exclusivos de /get/games
+ * para la pantalla 2.4.
+ */
+const ANALITICA_RETRY_DELAYS = [
+  1000,
+  2000,
+  4000,
+  8000
+];
+
+/*
+ * SOLO PARA PRUEBAS POSTERIORES:
+ * null = API real
+ * 429  = simular límite de solicitudes
+ * 500  = simular error interno
+ */
+const TEST_ANALITICA_GAMES_STATUS = null;
+
 /* ──────────────────────────────────────────────────────
    ESTADO DE LA APLICACIÓN
 ────────────────────────────────────────────────────── */
@@ -51,6 +70,9 @@ const state = {
 
   goleadas: [],
   muroRanking: [],
+
+  analiticaGames: [],
+  analiticaRanking: [],
 
   selectedTeam: null,
   selectedGames: [],
@@ -64,6 +86,11 @@ const state = {
 
   groupsLoaded: false,
   groupsError: false,
+
+  analiticaGamesLoaded: false,
+  analiticaGamesError: false,
+  analiticaGamesLoading: false,
+  analiticaRetryAttempt: 0,
 
   stadiumsLoaded: false,
   stadiumsError: false,
@@ -231,6 +258,40 @@ const muroCount =
 
 const muroGrid =
   document.getElementById("muroGrid");
+
+/* ──────────────────────────────────────────────────────
+   SELECTORES DE LA PANTALLA 2.4
+────────────────────────────────────────────────────── */
+
+const analiticaTotal =
+  document.getElementById("analiticaTotal");
+
+const analiticaStatStadiums =
+  document.getElementById("analiticaStatStadiums");
+
+const analiticaStatGames =
+  document.getElementById("analiticaStatGames");
+
+const analiticaStatPotential =
+  document.getElementById("analiticaStatPotential");
+
+const analiticaWaiting =
+  document.getElementById("analiticaWaiting");
+
+const analiticaWaitingTitle =
+  document.getElementById("analiticaWaitingTitle");
+
+const analiticaWaitingMessage =
+  document.getElementById("analiticaWaitingMessage");
+
+const analiticaEmptyState =
+  document.getElementById("analiticaEmptyState");
+
+const analiticaChart =
+  document.getElementById("analiticaChart");
+
+const analiticaRanking =
+  document.getElementById("analiticaRanking");
 
 /* ──────────────────────────────────────────────────────
    UTILIDADES DE ESTADO VISUAL
@@ -580,6 +641,17 @@ function showScreen(
 
   if (screenName === "muro") {
   renderMuro();
+  }
+
+  if (screenName === "analitica") {
+  renderAnalitica();
+
+    if (
+      !state.analiticaGamesLoaded &&
+      !state.analiticaGamesLoading
+    ) {
+      loadAnaliticaGames();
+    }
   }
 
   if (moveToTop) {
@@ -2462,6 +2534,612 @@ function renderMuro() {
   );
 }
 
+/* ═══════════════════════════════════════════════════════
+   PANTALLA 2.4: ANALÍTICA DE ESTADIOS
+═══════════════════════════════════════════════════════ */
+
+/*
+ * Cuenta la cantidad de partidos asignados
+ * a cada estadio.
+ */
+function getAnaliticaGameCounts() {
+  const gameCounts = new Map();
+
+  state.analiticaGames.forEach(game => {
+    const stadiumId =
+      String(game.stadium_id ?? "").trim();
+
+    if (!stadiumId) {
+      return;
+    }
+
+    const currentCount =
+      gameCounts.get(stadiumId) ?? 0;
+
+    gameCounts.set(
+      stadiumId,
+      currentCount + 1
+    );
+  });
+
+  return gameCounts;
+}
+
+/*
+ * Construye la información derivada
+ * de los 16 estadios.
+ */
+function calculateAnaliticaRanking() {
+  const gameCounts =
+    getAnaliticaGameCounts();
+
+  state.analiticaRanking =
+    state.stadiums
+      .map(stadium => {
+        const stadiumId =
+          String(stadium.id);
+
+        const capacity =
+          Number(stadium.capacity || 0);
+
+        const gamesCount =
+          state.analiticaGamesLoaded
+            ? gameCounts.get(stadiumId) ?? 0
+            : null;
+
+        const attendancePotential =
+          gamesCount === null
+            ? null
+            : capacity * gamesCount;
+
+        return {
+          stadium,
+          capacity,
+          gamesCount,
+          attendancePotential
+        };
+      })
+      .sort((itemA, itemB) => {
+        if (
+          itemA.attendancePotential === null ||
+          itemB.attendancePotential === null
+        ) {
+          return (
+            itemB.capacity -
+            itemA.capacity
+          );
+        }
+
+        const potentialOrder =
+          itemB.attendancePotential -
+          itemA.attendancePotential;
+
+        if (potentialOrder !== 0) {
+          return potentialOrder;
+        }
+
+        return (
+          itemB.capacity -
+          itemA.capacity
+        );
+      });
+
+  return state.analiticaRanking;
+}
+
+/*
+ * Crea una fila de la gráfica.
+ */
+function createAnaliticaChartRow(
+  item,
+  maxCapacity,
+  maxGames
+) {
+  const stadiumName =
+    item.stadium.name_en ??
+    item.stadium.fifa_name ??
+    "Estadio sin nombre";
+
+  const city =
+    item.stadium.city_en ??
+    "Ciudad no disponible";
+
+  const capacityPercent =
+    maxCapacity > 0
+      ? Math.max(
+          2,
+          Math.round(
+            item.capacity /
+            maxCapacity *
+            100
+          )
+        )
+      : 0;
+
+  const gamesPercent =
+    item.gamesCount !== null &&
+    maxGames > 0
+      ? Math.max(
+          2,
+          Math.round(
+            item.gamesCount /
+            maxGames *
+            100
+          )
+        )
+      : 0;
+
+  const gamesLabel =
+    item.gamesCount === null
+      ? "Esperando datos"
+      : `${item.gamesCount} partidos`;
+
+  const row =
+    document.createElement("article");
+
+  row.className =
+    "analitica-chart-row";
+
+  row.innerHTML = `
+    <div class="analitica-stadium-name">
+      <strong>
+        ${stadiumName}
+      </strong>
+
+      <span>
+        ${city}
+      </span>
+    </div>
+
+    <div class="analitica-bars">
+
+      <div class="analitica-bar-group">
+        <div class="analitica-bar-header">
+          <span>
+            Capacidad
+          </span>
+
+          <strong>
+            ${item.capacity.toLocaleString("es-CR")}
+          </strong>
+        </div>
+
+        <div class="analitica-bar-track">
+          <div
+            class="analitica-bar analitica-capacity-bar"
+            style="width: ${capacityPercent}%"
+          ></div>
+        </div>
+      </div>
+
+      <div class="analitica-bar-group">
+        <div class="analitica-bar-header">
+          <span>
+            Partidos
+          </span>
+
+          <strong>
+            ${gamesLabel}
+          </strong>
+        </div>
+
+        <div class="analitica-bar-track">
+          <div
+            class="analitica-bar analitica-games-bar"
+            style="width: ${gamesPercent}%"
+          ></div>
+        </div>
+      </div>
+
+    </div>
+  `;
+
+  return row;
+}
+
+/*
+ * Crea una fila del ranking de asistencia.
+ */
+function createAnaliticaRankingRow(
+  item,
+  position
+) {
+  const stadiumName =
+    item.stadium.name_en ??
+    item.stadium.fifa_name ??
+    "Estadio sin nombre";
+
+  const city =
+    item.stadium.city_en ??
+    "Ciudad no disponible";
+
+  const country =
+    item.stadium.country_en ??
+    "País no disponible";
+
+  const potentialText =
+    item.attendancePotential === null
+      ? "Esperando datos de partidos"
+      : item.attendancePotential
+          .toLocaleString("es-CR");
+
+  const gamesText =
+    item.gamesCount === null
+      ? "—"
+      : String(item.gamesCount);
+
+  const row =
+    document.createElement("article");
+
+  row.className =
+    "analitica-ranking-row";
+
+  row.innerHTML = `
+    <div class="analitica-ranking-position">
+      ${position}
+    </div>
+
+    <div class="analitica-ranking-stadium">
+      <span>
+        Estadio
+      </span>
+
+      <strong>
+        ${stadiumName}
+      </strong>
+
+      <small>
+        ${city}, ${country}
+      </small>
+    </div>
+
+    <div class="analitica-ranking-data">
+      <span>
+        Capacidad
+      </span>
+
+      <strong>
+        ${item.capacity.toLocaleString("es-CR")}
+      </strong>
+    </div>
+
+    <div class="analitica-ranking-data">
+      <span>
+        Partidos
+      </span>
+
+      <strong>
+        ${gamesText}
+      </strong>
+    </div>
+
+    <div class="analitica-ranking-data potential">
+      <span>
+        Asistencia potencial
+      </span>
+
+      <strong>
+        ${potentialText}
+      </strong>
+    </div>
+  `;
+
+  return row;
+}
+
+/*
+ * Muestra la información de los estadios.
+ * Los estadios permanecen visibles aunque
+ * falten los partidos.
+ */
+function renderAnalitica() {
+  if (
+    !analiticaChart ||
+    !analiticaEmptyState ||
+    !analiticaRanking
+  ) {
+    return;
+  }
+
+  analiticaChart.innerHTML = "";
+  analiticaRanking.innerHTML = "";
+
+  analiticaTotal.textContent = "0";
+  analiticaStatStadiums.textContent = "—";
+  analiticaStatGames.textContent = "—";
+  analiticaStatPotential.textContent = "—";
+
+  if (!state.stadiumsLoaded) {
+    analiticaEmptyState.style.display =
+      "block";
+
+    analiticaEmptyState.textContent =
+      state.stadiumsError
+        ? "No fue posible cargar los estadios."
+        : "Cargando los estadios...";
+
+    analiticaWaiting.hidden = true;
+    return;
+  }
+
+  const ranking =
+    calculateAnaliticaRanking();
+
+  analiticaTotal.textContent =
+    String(ranking.length);
+
+  analiticaStatStadiums.textContent =
+    String(ranking.length);
+
+  analiticaEmptyState.style.display =
+    "none";
+
+  if (!state.analiticaGamesLoaded) {
+    analiticaWaiting.hidden = false;
+
+    analiticaWaitingTitle.textContent =
+      state.analiticaGamesError
+        ? "No fue posible cargar los partidos"
+        : "Esperando datos de partidos";
+
+    analiticaWaitingMessage.textContent =
+      state.analiticaGamesError
+        ? "Los estadios permanecen visibles. Se agotaron los reintentos de /get/games."
+        : "Los estadios permanecen visibles mientras /get/games se reintenta con backoff.";
+
+    analiticaStatGames.textContent = "—";
+    analiticaStatPotential.textContent = "—";
+  } else {
+    analiticaWaiting.hidden = true;
+
+    analiticaStatGames.textContent =
+      String(
+        state.analiticaGames.length
+      );
+
+    const highestPotential =
+      ranking[0]?.attendancePotential ?? 0;
+
+    analiticaStatPotential.textContent =
+      highestPotential.toLocaleString(
+        "es-CR"
+      );
+  }
+
+  const maxCapacity =
+    Math.max(
+      ...ranking.map(
+        item => item.capacity
+      ),
+      0
+    );
+
+  const maxGames =
+    Math.max(
+      ...ranking.map(
+        item => item.gamesCount ?? 0
+      ),
+      0
+    );
+
+  ranking.forEach(item => {
+    analiticaChart.appendChild(
+      createAnaliticaChartRow(
+        item,
+        maxCapacity,
+        maxGames
+      )
+    );
+  });
+
+  ranking.forEach(
+    (item, index) => {
+      analiticaRanking.appendChild(
+        createAnaliticaRankingRow(
+          item,
+          index + 1
+        )
+      );
+    }
+  );
+}
+
+/*
+ * Countdown específico de Analítica.
+ */
+function runAnaliticaCountdown(
+  seconds,
+  statusCode
+) {
+  return new Promise(resolve => {
+    let remainingSeconds = seconds;
+
+    analiticaWaiting.hidden = false;
+
+    const updateMessage = () => {
+      analiticaWaitingTitle.textContent =
+        `Error HTTP ${statusCode} en /get/games`;
+
+      analiticaWaitingMessage.textContent =
+        `Los estadios permanecen visibles. Nuevo intento en ${remainingSeconds} segundo${
+          remainingSeconds === 1
+            ? ""
+            : "s"
+        }.`;
+    };
+
+    updateMessage();
+
+    const countdown =
+      setInterval(() => {
+        remainingSeconds -= 1;
+
+        if (remainingSeconds <= 0) {
+          clearInterval(countdown);
+
+          analiticaWaitingTitle.textContent =
+            "Reintentando partidos";
+
+          analiticaWaitingMessage.textContent =
+            "Realizando una nueva petición a /get/games...";
+
+          resolve();
+          return;
+        }
+
+        updateMessage();
+      }, 1000);
+  });
+}
+
+/*
+ * Carga los partidos exclusivos de Analítica.
+ * Solo esta petición entra en backoff.
+ */
+function loadAnaliticaGames(
+  attempt = 0
+) {
+  if (
+    state.analiticaGamesLoading &&
+    attempt === 0
+  ) {
+    return;
+  }
+
+  state.analiticaGamesLoading = true;
+  state.analiticaGamesError = false;
+
+  renderAnalitica();
+
+  const requestUrl =
+    TEST_ANALITICA_GAMES_STATUS === 429 ||
+    TEST_ANALITICA_GAMES_STATUS === 500
+      ? `http://localhost:3001/status/${TEST_ANALITICA_GAMES_STATUS}`
+      : `${BASE}/get/games`;
+
+  fetch(requestUrl)
+    .then(response => {
+      if (response.ok) {
+        return response.json();
+      }
+
+      const canRetry =
+        response.status === 429 ||
+        response.status === 500;
+
+      if (!canRetry) {
+        throw new Error(
+          `Error HTTP ${response.status} al cargar partidos de Analítica`
+        );
+      }
+
+      if (
+        attempt >=
+        ANALITICA_RETRY_DELAYS.length
+      ) {
+        throw new Error(
+          "Se agotaron los reintentos de /get/games para Analítica."
+        );
+      }
+
+      const delay =
+        ANALITICA_RETRY_DELAYS[
+          attempt
+        ];
+
+      console.warn(
+        `/get/games de Analítica devolvió HTTP ${response.status}. ` +
+        `Reintento ${attempt + 1} en ${delay / 1000}s.`
+      );
+
+      return runAnaliticaCountdown(
+        delay / 1000,
+        response.status
+      ).then(() => {
+        return loadAnaliticaGames(
+          attempt + 1
+        );
+      });
+    })
+    .then(jsonData => {
+      /*
+       * Cuando ocurrió un reintento recursivo,
+       * el resultado final ya fue procesado.
+       */
+      if (!jsonData) {
+        return;
+      }
+
+      if (
+        !Array.isArray(
+          jsonData.games
+        )
+      ) {
+        throw new Error(
+          "La API no devolvió una lista válida de partidos para Analítica."
+        );
+      }
+
+      state.analiticaGames =
+        jsonData.games;
+
+      state.analiticaGamesLoaded =
+        true;
+
+      state.analiticaGamesError =
+        false;
+
+      state.analiticaRetryAttempt = 0;
+
+      console.log(
+        `${state.analiticaGames.length} partidos cargados para Analítica.`
+      );
+
+      renderAnalitica();
+    })
+    .catch(error => {
+      /*
+       * Los errores intermedios ya continúan
+       * mediante la llamada recursiva.
+       */
+      if (
+        attempt <
+          ANALITICA_RETRY_DELAYS.length &&
+        (
+          error.message.includes("429") ||
+          error.message.includes("500")
+        )
+      ) {
+        return;
+      }
+
+      console.error(
+        "Error al cargar partidos para Analítica:",
+        error
+      );
+
+      state.analiticaGames = [];
+      state.analiticaGamesLoaded = false;
+      state.analiticaGamesError = true;
+
+      renderAnalitica();
+    })
+    .finally(() => {
+      /*
+       * Solo el intento principal libera
+       * el estado de carga.
+       */
+      if (
+        attempt === 0 ||
+        state.analiticaGamesLoaded ||
+        state.analiticaGamesError
+      ) {
+        state.analiticaGamesLoading =
+          false;
+      }
+    });
+}
+
 /* ──────────────────────────────────────────────────────
    CARGAR GRUPOS
 ────────────────────────────────────────────────────── */
@@ -2756,6 +3434,7 @@ function loadGames() {
 
       renderGoleadas();
       renderMuro();
+      renderAnalitica();
     })
     .catch(error => {
       console.error(
@@ -2797,6 +3476,7 @@ function loadGames() {
 
         renderGoleadas();
         renderMuro();
+        renderAnalitica();
         return;
       }
 
@@ -2812,6 +3492,7 @@ function loadGames() {
 
       renderGoleadas();
       renderMuro();
+      renderAnalitica();
     });
 }
 
@@ -2878,6 +3559,8 @@ function loadStadiums() {
         renderStadiumsSection();
         renderSummarySection();
       }
+
+      renderAnalitica();
     })
     .catch(error => {
       console.error(
@@ -2918,6 +3601,7 @@ function loadStadiums() {
           renderSummarySection();
         }
 
+        renderAnalitica();
         return;
       }
 
@@ -2944,6 +3628,8 @@ function loadStadiums() {
         renderStadiumsSection();
         renderSummarySection();
       }
+
+      renderAnalitica();
     })
     .finally(() => {
       state.stadiumsLoading =

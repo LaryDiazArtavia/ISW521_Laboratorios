@@ -2208,3 +2208,506 @@ footer code {
     justify-content: center;
   }
 }
+/* ═══════════════════════════════════════════════════════
+   PANTALLA 2.4: ANALÍTICA DE ESTADIOS
+═══════════════════════════════════════════════════════ */
+
+/* Presentación principal */
+
+.analitica-hero {
+  background:
+    linear-gradient(
+      135deg,
+      rgba(52, 152, 219, 0.16),
+      transparent 55%
+    ),
+    var(--surface);
+}
+
+.analitica-hero::after {
+  background: repeating-linear-gradient(
+    -55deg,
+    #3498db 0,
+    #3498db 7px,
+    transparent 7px,
+    transparent 18px
+  );
+}
+
+.analitica-total-box {
+  position: relative;
+  z-index: 2;
+
+  min-width: 175px;
+  padding: 1.15rem 1.4rem;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  flex-shrink: 0;
+
+  background: rgba(10, 10, 10, 0.65);
+  border: 1px solid rgba(52, 152, 219, 0.55);
+  border-radius: var(--radius);
+
+  text-align: center;
+}
+
+.analitica-total-box span {
+  margin-bottom: 0.35rem;
+
+  color: var(--text-2);
+
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.analitica-total-box strong {
+  color: #3498db;
+
+  font-family: var(--font-display);
+  font-size: 2.8rem;
+  line-height: 1;
+}
+
+/* Botón activo */
+
+.screen-nav-button[data-screen="analitica"].active {
+  background: #3498db;
+  border-color: #3498db;
+
+  color: white;
+}
+
+/* Resumen general */
+
+.analitica-summary {
+  display: grid;
+  grid-template-columns: repeat(
+    3,
+    minmax(0, 1fr)
+  );
+  gap: 1rem;
+}
+
+.analitica-summary-card {
+  min-height: 125px;
+  padding: 1.4rem;
+
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+
+  transition:
+    transform var(--transition),
+    border-color var(--transition);
+}
+
+.analitica-summary-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(52, 152, 219, 0.55);
+}
+
+.analitica-summary-card span {
+  margin-bottom: 0.45rem;
+
+  color: var(--text-3);
+
+  font-family: var(--font-mono);
+  font-size: 0.63rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.analitica-summary-card strong {
+  color: #3498db;
+
+  font-family: var(--font-display);
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+  line-height: 1;
+}
+
+/* Aviso de espera y reintentos */
+
+.analitica-waiting {
+  margin-bottom: 1.5rem;
+  padding: 1rem 1.25rem;
+
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+
+  background: rgba(52, 152, 219, 0.1);
+  border: 1px solid rgba(52, 152, 219, 0.45);
+  border-radius: var(--radius);
+}
+
+.analitica-waiting strong {
+  display: block;
+  margin-bottom: 0.2rem;
+
+  color: #5dade2;
+  font-size: 0.84rem;
+}
+
+.analitica-waiting p {
+  color: var(--text-2);
+  font-size: 0.78rem;
+}
+
+/* Leyenda */
+
+.analitica-legend {
+  margin-bottom: 1.25rem;
+
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.analitica-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+
+  color: var(--text-2);
+
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+.analitica-legend i {
+  width: 18px;
+  height: 8px;
+
+  display: inline-block;
+
+  border-radius: 999px;
+}
+
+.legend-capacity {
+  background: #3498db;
+}
+
+.legend-games {
+  background: var(--gold);
+}
+
+/* Gráfica */
+
+.analitica-chart {
+  display: grid;
+  gap: 1rem;
+}
+
+.analitica-chart-row {
+  padding: 1.15rem;
+
+  display: grid;
+  grid-template-columns:
+    minmax(180px, 0.8fr)
+    minmax(300px, 2fr);
+  align-items: center;
+  gap: 1.5rem;
+
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+
+  animation: card-in 0.35s ease both;
+
+  transition:
+    transform var(--transition),
+    border-color var(--transition);
+}
+
+.analitica-chart-row:hover {
+  transform: translateY(-2px);
+  border-color: rgba(52, 152, 219, 0.5);
+}
+
+.analitica-stadium-name {
+  min-width: 0;
+}
+
+.analitica-stadium-name strong {
+  display: block;
+
+  margin-bottom: 0.25rem;
+
+  color: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.35;
+
+  overflow-wrap: anywhere;
+}
+
+.analitica-stadium-name span {
+  color: var(--text-2);
+  font-size: 0.74rem;
+}
+
+.analitica-bars {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.analitica-bar-group {
+  min-width: 0;
+}
+
+.analitica-bar-header {
+  margin-bottom: 0.35rem;
+
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.analitica-bar-header span {
+  color: var(--text-3);
+
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.analitica-bar-header strong {
+  color: var(--text-2);
+
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+}
+
+.analitica-bar-track {
+  overflow: hidden;
+
+  width: 100%;
+  height: 10px;
+
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.analitica-bar {
+  height: 100%;
+
+  border-radius: 999px;
+
+  transition: width 500ms ease;
+}
+
+.analitica-capacity-bar {
+  background: linear-gradient(
+    90deg,
+    #2471a3,
+    #3498db,
+    #5dade2
+  );
+}
+
+.analitica-games-bar {
+  background: linear-gradient(
+    90deg,
+    var(--gold-dim),
+    var(--gold)
+  );
+}
+
+/* Ranking */
+
+.analitica-ranking {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.analitica-ranking-row {
+  padding: 1rem 1.15rem;
+
+  display: grid;
+  grid-template-columns:
+    45px
+    minmax(190px, 1.4fr)
+    minmax(110px, 0.7fr)
+    minmax(90px, 0.5fr)
+    minmax(170px, 1fr);
+  align-items: center;
+  gap: 1rem;
+
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+
+  transition:
+    transform var(--transition),
+    border-color var(--transition);
+}
+
+.analitica-ranking-row:hover {
+  transform: translateY(-2px);
+  border-color: rgba(52, 152, 219, 0.5);
+}
+
+.analitica-ranking-position {
+  width: 38px;
+  height: 38px;
+
+  display: grid;
+  place-items: center;
+
+  background: rgba(52, 152, 219, 0.12);
+  border: 1px solid rgba(52, 152, 219, 0.4);
+  border-radius: 50%;
+
+  color: #5dade2;
+
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+}
+
+.analitica-ranking-stadium {
+  min-width: 0;
+}
+
+.analitica-ranking-stadium span,
+.analitica-ranking-data span {
+  display: block;
+
+  margin-bottom: 0.2rem;
+
+  color: var(--text-3);
+
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.analitica-ranking-stadium strong {
+  display: block;
+
+  color: var(--text);
+  font-size: 0.88rem;
+  line-height: 1.35;
+
+  overflow-wrap: anywhere;
+}
+
+.analitica-ranking-stadium small {
+  display: block;
+
+  margin-top: 0.15rem;
+
+  color: var(--text-2);
+  font-size: 0.7rem;
+}
+
+.analitica-ranking-data strong {
+  color: var(--text);
+
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.analitica-ranking-data.potential strong {
+  color: #5dade2;
+}
+
+/* ═══════════════════════════════════════════════════════
+   RESPONSIVE DEL PUNTO 2.4
+═══════════════════════════════════════════════════════ */
+
+@media (max-width: 950px) {
+  .analitica-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .analitica-chart-row {
+    grid-template-columns: 1fr;
+  }
+
+  .analitica-ranking-row {
+    grid-template-columns:
+      40px
+      minmax(180px, 1fr)
+      minmax(100px, 0.6fr)
+      minmax(90px, 0.5fr);
+  }
+
+  .analitica-ranking-data.potential {
+    grid-column: 2 / -1;
+
+    padding-top: 0.8rem;
+
+    border-top: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 650px) {
+  .analitica-hero {
+    align-items: stretch;
+  }
+
+  .analitica-total-box {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .analitica-chart-row {
+    padding: 1rem;
+  }
+
+  .analitica-bar-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .analitica-ranking-row {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+
+  .analitica-ranking-data {
+    grid-column: 1 / -1;
+
+    padding-top: 0.75rem;
+
+    border-top: 1px solid var(--border);
+  }
+
+  .analitica-ranking-data.potential {
+    grid-column: 1 / -1;
+  }
+
+  .analitica-waiting {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 430px) {
+  .analitica-ranking-row {
+    grid-template-columns: 1fr;
+
+    text-align: center;
+  }
+
+  .analitica-ranking-position {
+    margin: 0 auto;
+  }
+
+  .analitica-ranking-data,
+  .analitica-ranking-data.potential {
+    grid-column: auto;
+  }
+}

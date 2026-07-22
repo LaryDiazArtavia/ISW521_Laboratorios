@@ -104,8 +104,6 @@
     type="button"
     class="screen-nav-button"
     data-screen="muro"
-    disabled
-    title="Pendiente de implementar"
   >
     3. El Muro
   </button>
@@ -745,6 +743,146 @@
       id="goleadasGrid"
       aria-live="polite"
       aria-label="Lista de goleadas"
+    >
+    </div>
+
+  </section>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════
+     PANTALLA 2.3: EL MURO
+════════════════════════════════════════════════════ -->
+<section
+  class="app-screen"
+  id="screen-muro"
+  data-screen-panel="muro"
+  aria-labelledby="muroTitle"
+  hidden
+>
+
+  <!-- Presentación -->
+  <div class="route-hero muro-hero">
+
+    <div>
+      <span class="screen-number">
+        Pantalla 2.3
+      </span>
+
+      <h2 id="muroTitle">
+        El Muro
+      </h2>
+
+      <p>
+        Ranking defensivo con los cinco equipos que han
+        recibido menos goles durante el Mundial 2026.
+        Cada registro también muestra su próximo rival.
+      </p>
+    </div>
+
+    <div class="muro-total-box">
+      <span>
+        Equipos destacados
+      </span>
+
+      <strong id="muroTotal">
+        5
+      </strong>
+    </div>
+
+  </div>
+
+  <!-- Ranking -->
+  <section
+    class="route-section"
+    aria-labelledby="muroRankingTitle"
+  >
+
+    <div class="section-heading">
+
+      <div>
+        <span class="section-kicker">
+          Ranking defensivo
+        </span>
+
+        <h3 id="muroRankingTitle">
+          Equipos con menos goles recibidos
+        </h3>
+      </div>
+
+      <p>
+        Cruce de datos entre
+        <code>/get/groups</code>,
+        <code>/get/games</code>
+        y
+        <code>/get/teams</code>.
+      </p>
+
+    </div>
+
+    <!-- Estado informativo -->
+    <div
+      class="teams-warning"
+      id="muroStatus"
+      role="status"
+      aria-live="polite"
+      hidden
+    >
+
+      <span
+        class="status-icon"
+        aria-hidden="true"
+      >
+        ⚠
+      </span>
+
+      <div>
+        <strong>
+          Información parcial
+        </strong>
+
+        <p id="muroStatusMessage">
+          Parte de la información del ranking no está disponible.
+        </p>
+      </div>
+
+    </div>
+
+    <!-- Estado inicial -->
+    <div
+      class="empty-state"
+      id="muroEmptyState"
+    >
+      Cargando el ranking defensivo...
+    </div>
+
+    <!-- Encabezado del ranking -->
+    <div
+      class="section-eyebrow"
+      id="muroEyebrow"
+    >
+
+      <span class="eyebrow-label">
+        Mejores defensas
+      </span>
+
+      <div class="eyebrow-line"></div>
+
+      <span
+        class="eyebrow-count"
+        id="muroCount"
+      >
+        0
+      </span>
+
+    </div>
+
+    <!-- Tarjetas generadas con JavaScript -->
+    <div
+      class="muro-grid"
+      id="muroGrid"
+      aria-live="polite"
+      aria-label="Ranking de equipos con menos goles recibidos"
     >
     </div>
 

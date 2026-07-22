@@ -1719,3 +1719,492 @@ footer code {
     align-items: flex-start;
   }
 }
+
+/* ═══════════════════════════════════════════════════════
+   PANTALLA 2.3: EL MURO
+═══════════════════════════════════════════════════════ */
+
+/* Presentación principal */
+
+.muro-hero {
+  background:
+    linear-gradient(
+      135deg,
+      rgba(46, 204, 113, 0.16),
+      transparent 55%
+    ),
+    var(--surface);
+}
+
+.muro-hero::after {
+  background: repeating-linear-gradient(
+    -55deg,
+    var(--green) 0,
+    var(--green) 7px,
+    transparent 7px,
+    transparent 18px
+  );
+}
+
+.muro-total-box {
+  position: relative;
+  z-index: 2;
+
+  min-width: 165px;
+  padding: 1.15rem 1.4rem;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  flex-shrink: 0;
+
+  background: rgba(10, 10, 10, 0.65);
+  border: 1px solid rgba(46, 204, 113, 0.5);
+  border-radius: var(--radius);
+
+  text-align: center;
+}
+
+.muro-total-box span {
+  margin-bottom: 0.35rem;
+
+  color: var(--text-2);
+
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.muro-total-box strong {
+  color: var(--green);
+
+  font-family: var(--font-display);
+  font-size: 2.8rem;
+  line-height: 1;
+}
+
+/* Navegación activa */
+
+.screen-nav-button[data-screen="muro"].active {
+  background: var(--green);
+  border-color: var(--green);
+
+  color: var(--black);
+}
+
+/* Cuadrícula del ranking */
+
+.muro-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+/* Tarjeta principal */
+
+.muro-card {
+  position: relative;
+  overflow: hidden;
+
+  min-height: 145px;
+  padding: 1.25rem;
+
+  display: grid;
+  grid-template-columns:
+    55px
+    minmax(180px, 1.4fr)
+    minmax(130px, 0.7fr)
+    minmax(220px, 1.2fr);
+  align-items: center;
+  gap: 1.25rem;
+
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+
+  animation: card-in 0.35s ease both;
+
+  transition:
+    transform var(--transition),
+    border-color var(--transition),
+    box-shadow var(--transition);
+}
+
+.muro-card::before {
+  content: "";
+
+  position: absolute;
+  top: 0;
+  left: 0;
+
+  width: 5px;
+  height: 100%;
+
+  background: var(--green);
+}
+
+.muro-card:hover {
+  transform: translateY(-3px);
+
+  border-color: rgba(46, 204, 113, 0.5);
+
+  box-shadow:
+    0 14px 36px
+    rgba(0, 0, 0, 0.42);
+}
+
+/* Primer lugar */
+
+.muro-card.first-place {
+  background:
+    linear-gradient(
+      110deg,
+      rgba(245, 200, 66, 0.08),
+      transparent 45%
+    ),
+    var(--card);
+
+  border-color: var(--gold-dim);
+}
+
+.muro-card.first-place::before {
+  background: var(--gold);
+}
+
+/* Posición */
+
+.muro-position {
+  width: 48px;
+  height: 48px;
+
+  display: grid;
+  place-items: center;
+
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+
+.muro-position span {
+  color: var(--green);
+
+  font-family: var(--font-display);
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.muro-card.first-place .muro-position {
+  background: var(--gold-glow);
+  border-color: var(--gold-dim);
+}
+
+.muro-card.first-place .muro-position span {
+  color: var(--gold);
+}
+
+/* Información del equipo */
+
+.muro-team-main {
+  min-width: 0;
+
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.muro-team-flag {
+  overflow: hidden;
+
+  width: 78px;
+  height: 52px;
+
+  display: grid;
+  place-items: center;
+
+  flex-shrink: 0;
+
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.muro-team-flag img {
+  width: 100%;
+  height: 100%;
+
+  display: block;
+
+  object-fit: cover;
+}
+
+.muro-flag-placeholder {
+  width: 100%;
+  height: 100%;
+
+  display: grid;
+  place-items: center;
+
+  color: var(--text-3);
+
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
+.muro-team-info {
+  min-width: 0;
+}
+
+.muro-team-info span {
+  display: block;
+
+  margin-bottom: 0.25rem;
+
+  color: var(--text-3);
+
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.muro-team-info h3 {
+  overflow-wrap: anywhere;
+
+  color: var(--text);
+
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  line-height: 1.1;
+  letter-spacing: 0.03em;
+}
+
+/* Estadística defensiva */
+
+.muro-stat {
+  min-height: 90px;
+  padding: 1rem;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+
+  text-align: center;
+}
+
+.muro-stat span {
+  margin-bottom: 0.35rem;
+
+  color: var(--text-3);
+
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.muro-stat strong {
+  color: var(--green);
+
+  font-family: var(--font-display);
+  font-size: 2.2rem;
+  line-height: 1;
+}
+
+.muro-card.first-place .muro-stat strong {
+  color: var(--gold);
+}
+
+.muro-stat small {
+  margin-top: 0.3rem;
+
+  color: var(--text-2);
+  font-size: 0.68rem;
+}
+
+/* Próximo rival */
+
+.muro-next-game {
+  min-width: 0;
+}
+
+.muro-next-label {
+  display: block;
+
+  margin-bottom: 0.55rem;
+
+  color: var(--text-3);
+
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.muro-rival {
+  min-width: 0;
+
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.muro-rival-flag {
+  overflow: hidden;
+
+  width: 52px;
+  height: 36px;
+
+  display: grid;
+  place-items: center;
+
+  flex-shrink: 0;
+
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.muro-rival-flag img {
+  width: 100%;
+  height: 100%;
+
+  display: block;
+
+  object-fit: cover;
+}
+
+.muro-rival-placeholder {
+  color: var(--text-3);
+
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+.muro-rival > div:last-child {
+  min-width: 0;
+}
+
+.muro-rival strong {
+  display: block;
+
+  overflow-wrap: anywhere;
+
+  color: var(--text);
+
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.muro-rival small {
+  display: block;
+
+  margin-top: 0.2rem;
+
+  color: var(--text-2);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.muro-rival-error {
+  color: #f5a9a3 !important;
+}
+
+/* ═══════════════════════════════════════════════════════
+   RESPONSIVE DEL PUNTO 2.3
+═══════════════════════════════════════════════════════ */
+
+@media (max-width: 950px) {
+  .muro-card {
+    grid-template-columns:
+      50px
+      minmax(180px, 1fr)
+      minmax(120px, 0.6fr);
+  }
+
+  .muro-next-game {
+    grid-column: 2 / -1;
+
+    padding-top: 1rem;
+
+    border-top: 1px solid var(--border);
+  }
+}
+
+@media (max-width: 650px) {
+  .muro-hero {
+    align-items: stretch;
+  }
+
+  .muro-total-box {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .muro-card {
+    grid-template-columns: 45px minmax(0, 1fr);
+    gap: 1rem;
+  }
+
+  .muro-position {
+    width: 42px;
+    height: 42px;
+  }
+
+  .muro-position span {
+    font-size: 1.5rem;
+  }
+
+  .muro-team-main {
+    align-items: flex-start;
+  }
+
+  .muro-team-flag {
+    width: 68px;
+    height: 46px;
+  }
+
+  .muro-stat {
+    grid-column: 1 / -1;
+
+    min-height: 80px;
+  }
+
+  .muro-next-game {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 430px) {
+  .muro-card {
+    grid-template-columns: 1fr;
+  }
+
+  .muro-position {
+    margin: 0 auto;
+  }
+
+  .muro-team-main {
+    align-items: center;
+    flex-direction: column;
+
+    text-align: center;
+  }
+
+  .muro-next-game {
+    text-align: center;
+  }
+
+  .muro-rival {
+    justify-content: center;
+  }
+}

@@ -47,7 +47,10 @@ const state = {
   teams: [],
   games: [],
   stadiums: [],
+  groups: [],
+
   goleadas: [],
+  muroRanking: [],
 
   selectedTeam: null,
   selectedGames: [],
@@ -58,6 +61,9 @@ const state = {
 
   gamesLoaded: false,
   gamesError: false,
+
+  groupsLoaded: false,
+  groupsError: false,
 
   stadiumsLoaded: false,
   stadiumsError: false,
@@ -200,6 +206,31 @@ const goleadasCount =
 
 const goleadasGrid =
   document.getElementById("goleadasGrid");
+
+/* ──────────────────────────────────────────────────────
+   SELECTORES DE LA PANTALLA 2.3
+────────────────────────────────────────────────────── */
+
+const muroTotal =
+  document.getElementById("muroTotal");
+
+const muroStatus =
+  document.getElementById("muroStatus");
+
+const muroStatusMessage =
+  document.getElementById("muroStatusMessage");
+
+const muroEmptyState =
+  document.getElementById("muroEmptyState");
+
+const muroEyebrow =
+  document.getElementById("muroEyebrow");
+
+const muroCount =
+  document.getElementById("muroCount");
+
+const muroGrid =
+  document.getElementById("muroGrid");
 
 /* ──────────────────────────────────────────────────────
    UTILIDADES DE ESTADO VISUAL
@@ -545,6 +576,10 @@ function showScreen(
 
   if (screenName === "goleadas") {
     renderGoleadas();
+  }
+
+  if (screenName === "muro") {
+  renderMuro();
   }
 
   if (moveToTop) {
@@ -1908,6 +1943,580 @@ function renderSummarySection() {
     "none";
 }
 
+/* ═══════════════════════════════════════════════════════
+   PANTALLA 2.3: EL MURO
+═══════════════════════════════════════════════════════ */
+
+/*
+ * Extrae los 48 identificadores desde los 12 grupos.
+ */
+function getGroupTeamIds() {
+  const teamIds = [];
+
+  state.groups.forEach(group => {
+    if (!Array.isArray(group.teams)) {
+      return;
+    }
+
+    group.teams.forEach(groupTeam => {
+      const teamId =
+        String(groupTeam.team_id ?? "").trim();
+
+      if (
+        teamId &&
+        teamId !== "0" &&
+        !teamIds.includes(teamId)
+      ) {
+        teamIds.push(teamId);
+      }
+    });
+  });
+
+  return teamIds;
+}
+
+/*
+ * Calcula los goles recibidos por cada equipo
+ * utilizando todos los partidos terminados.
+ */
+function calculateMuroRanking() {
+  const teamIds =
+    getGroupTeamIds();
+
+  const defensiveMap =
+    new Map();
+
+  teamIds.forEach(teamId => {
+    defensiveMap.set(teamId, {
+      teamId,
+      goalsAgainst: 0,
+      gamesPlayed: 0
+    });
+  });
+
+  state.games
+    .filter(game => isFinishedGame(game))
+    .forEach(game => {
+      const homeTeamId =
+        String(game.home_team_id ?? "");
+
+      const awayTeamId =
+        String(game.away_team_id ?? "");
+
+      const homeScore =
+        parseGameScore(game.home_score);
+
+      const awayScore =
+        parseGameScore(game.away_score);
+
+      if (
+        homeScore === null ||
+        awayScore === null
+      ) {
+        return;
+      }
+
+      const homeRecord =
+        defensiveMap.get(homeTeamId);
+
+      if (homeRecord) {
+        homeRecord.goalsAgainst +=
+          awayScore;
+
+        homeRecord.gamesPlayed += 1;
+      }
+
+      const awayRecord =
+        defensiveMap.get(awayTeamId);
+
+      if (awayRecord) {
+        awayRecord.goalsAgainst +=
+          homeScore;
+
+        awayRecord.gamesPlayed += 1;
+      }
+    });
+
+  state.muroRanking =
+    [...defensiveMap.values()]
+      .sort((teamA, teamB) => {
+        const goalsOrder =
+          teamA.goalsAgainst -
+          teamB.goalsAgainst;
+
+        if (goalsOrder !== 0) {
+          return goalsOrder;
+        }
+
+        /*
+         * Desempate determinista mediante ID.
+         * El criterio principal sigue siendo goles recibidos.
+         */
+        return (
+          Number(teamA.teamId) -
+          Number(teamB.teamId)
+        );
+      })
+      .slice(0, 5);
+
+  return state.muroRanking;
+}
+
+/*
+ * Busca el próximo partido no terminado de un equipo.
+ */
+function findNextGameForTeam(teamId) {
+  const normalizedTeamId =
+    String(teamId);
+
+  const upcomingGames =
+    state.games
+      .filter(game => {
+        if (isFinishedGame(game)) {
+          return false;
+        }
+
+        const homeTeamId =
+          String(game.home_team_id ?? "");
+
+        const awayTeamId =
+          String(game.away_team_id ?? "");
+
+        return (
+          homeTeamId === normalizedTeamId ||
+          awayTeamId === normalizedTeamId
+        );
+      })
+      .sort((gameA, gameB) => {
+        return (
+          parseLocalDate(gameA.local_date) -
+          parseLocalDate(gameB.local_date)
+        );
+      });
+
+  return upcomingGames[0] ?? null;
+}
+
+/*
+ * Determina el rival del siguiente partido.
+ * Se ejecuta de forma independiente para cada equipo.
+ */
+function getNextOpponentForTeam(teamId) {
+  try {
+    const nextGame =
+      findNextGameForTeam(teamId);
+
+    if (!nextGame) {
+      return {
+        available: true,
+        name: "Sin próximo partido",
+        flag: "",
+        date: ""
+      };
+    }
+
+    const normalizedTeamId =
+      String(teamId);
+
+    const isHome =
+      String(nextGame.home_team_id) ===
+      normalizedTeamId;
+
+    const opponentId =
+      isHome
+        ? String(nextGame.away_team_id ?? "")
+        : String(nextGame.home_team_id ?? "");
+
+    /*
+     * En algunas llaves eliminatorias el rival
+     * todavía puede aparecer como un texto pendiente.
+     */
+    if (
+      !opponentId ||
+      opponentId === "0"
+    ) {
+      const opponentLabel =
+        isHome
+          ? nextGame.away_team_label
+          : nextGame.home_team_label;
+
+      if (!opponentLabel) {
+        throw new Error(
+          `No existe rival para el equipo ${teamId}`
+        );
+      }
+
+      return {
+        available: true,
+        name: opponentLabel,
+        flag: "",
+        date: formatLocalDate(
+          nextGame.local_date
+        )
+      };
+    }
+
+    const opponentTeam =
+      getTeamById(opponentId);
+
+    const fallbackName =
+      isHome
+        ? nextGame.away_team_name_en
+        : nextGame.home_team_name_en;
+
+    const opponentName =
+      opponentTeam?.name_en ??
+      fallbackName;
+
+    if (!opponentName) {
+      throw new Error(
+        `No fue posible resolver el rival ${opponentId}`
+      );
+    }
+
+    return {
+      available: true,
+      name: opponentName,
+      flag: opponentTeam?.flag ?? "",
+      date: formatLocalDate(
+        nextGame.local_date
+      )
+    };
+  } catch (error) {
+    console.error(
+      `Error al buscar el rival del equipo ${teamId}:`,
+      error
+    );
+
+    /*
+     * El error solo afecta este registro.
+     */
+    return {
+      available: false,
+      name: "Próximo rival no disponible",
+      flag: "",
+      date: ""
+    };
+  }
+}
+
+/*
+ * Genera la bandera o un respaldo visual.
+ */
+function createMuroFlagMarkup(
+  flag,
+  teamName
+) {
+  if (flag) {
+    return `
+      <img
+        src="${flag}"
+        alt="Bandera de ${teamName}"
+        loading="lazy"
+      >
+    `;
+  }
+
+  return `
+    <span
+      class="muro-flag-placeholder"
+      aria-label="Bandera no disponible"
+    >
+      ID
+    </span>
+  `;
+}
+
+/*
+ * Crea una tarjeta del ranking.
+ */
+function createMuroCard(
+  rankingItem,
+  position
+) {
+  const team =
+    getTeamById(
+      rankingItem.teamId
+    );
+
+  const teamName =
+    team?.name_en ??
+    `Equipo ID ${rankingItem.teamId}`;
+
+  const teamFlag =
+    team?.flag ?? "";
+
+  /*
+   * Esta búsqueda está aislada por equipo.
+   * Un error no evita generar las otras tarjetas.
+   */
+  const nextOpponent =
+    getNextOpponentForTeam(
+      rankingItem.teamId
+    );
+
+  const opponentFlagMarkup =
+    nextOpponent.flag
+      ? `
+          <img
+            src="${nextOpponent.flag}"
+            alt="Bandera de ${nextOpponent.name}"
+            loading="lazy"
+          >
+        `
+      : `
+          <span
+            class="muro-rival-placeholder"
+            aria-hidden="true"
+          >
+            VS
+          </span>
+        `;
+
+  const card =
+    document.createElement("article");
+
+  card.className = "muro-card";
+
+  if (position === 1) {
+    card.classList.add("first-place");
+  }
+
+  card.innerHTML = `
+    <div class="muro-position">
+      <span>
+        ${position}
+      </span>
+    </div>
+
+    <div class="muro-team-main">
+
+      <div class="muro-team-flag">
+        ${createMuroFlagMarkup(
+          teamFlag,
+          teamName
+        )}
+      </div>
+
+      <div class="muro-team-info">
+        <span>
+          Equipo
+        </span>
+
+        <h3>
+          ${teamName}
+        </h3>
+      </div>
+
+    </div>
+
+    <div class="muro-stat">
+
+      <span>
+        Goles recibidos
+      </span>
+
+      <strong>
+        ${rankingItem.goalsAgainst}
+      </strong>
+
+      <small>
+        ${rankingItem.gamesPlayed}
+        ${
+          rankingItem.gamesPlayed === 1
+            ? "partido"
+            : "partidos"
+        }
+      </small>
+
+    </div>
+
+    <div class="muro-next-game">
+
+      <span class="muro-next-label">
+        Próximo rival
+      </span>
+
+      <div class="muro-rival">
+
+        <div class="muro-rival-flag">
+          ${opponentFlagMarkup}
+        </div>
+
+        <div>
+          <strong class="${
+            nextOpponent.available
+              ? ""
+              : "muro-rival-error"
+          }">
+            ${nextOpponent.name}
+          </strong>
+
+          ${
+            nextOpponent.date
+              ? `
+                  <small>
+                    ${nextOpponent.date}
+                  </small>
+                `
+              : ""
+          }
+        </div>
+
+      </div>
+
+    </div>
+  `;
+
+  return card;
+}
+
+/*
+ * Renderiza el ranking defensivo.
+ */
+function renderMuro() {
+  if (
+    !muroGrid ||
+    !muroEmptyState
+  ) {
+    return;
+  }
+
+  muroGrid.innerHTML = "";
+
+  muroCount.textContent = "0";
+  muroTotal.textContent = "0";
+
+  muroEyebrow.classList.remove(
+    "visible"
+  );
+
+  muroStatus.hidden = true;
+
+  if (!state.groupsLoaded) {
+    muroEmptyState.style.display =
+      "block";
+
+    muroEmptyState.textContent =
+      state.groupsError
+        ? "No fue posible cargar los grupos."
+        : "Cargando los grupos del Mundial...";
+
+    return;
+  }
+
+  if (!state.gamesLoaded) {
+    muroEmptyState.style.display =
+      "block";
+
+    muroEmptyState.textContent =
+      state.gamesError
+        ? "No fue posible cargar los partidos."
+        : "Cargando los partidos del Mundial...";
+
+    return;
+  }
+
+  const ranking =
+    calculateMuroRanking();
+
+  if (!state.teamsLoaded) {
+    muroStatus.hidden = false;
+
+    muroStatusMessage.textContent =
+      "El ranking está disponible, pero los nombres y banderas de los equipos todavía no pudieron cargarse.";
+  }
+
+  muroTotal.textContent =
+    String(ranking.length);
+
+  muroCount.textContent =
+    String(ranking.length);
+
+  if (ranking.length === 0) {
+    muroEmptyState.style.display =
+      "block";
+
+    muroEmptyState.textContent =
+      "No fue posible construir el ranking defensivo.";
+
+    return;
+  }
+
+  muroEmptyState.style.display =
+    "none";
+
+  muroEyebrow.classList.add(
+    "visible"
+  );
+
+  ranking.forEach(
+    (rankingItem, index) => {
+      muroGrid.appendChild(
+        createMuroCard(
+          rankingItem,
+          index + 1
+        )
+      );
+    }
+  );
+}
+
+/* ──────────────────────────────────────────────────────
+   CARGAR GRUPOS
+────────────────────────────────────────────────────── */
+
+function loadGroups() {
+  fetch(`${BASE}/get/groups`)
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(
+          `Error HTTP ${response.status} al cargar grupos`
+        );
+      }
+
+      return response.json();
+    })
+    .then(jsonData => {
+      const receivedGroups =
+        Array.isArray(jsonData.groups)
+          ? jsonData.groups
+          : Array.isArray(jsonData)
+            ? jsonData
+            : null;
+
+      if (!receivedGroups) {
+        throw new Error(
+          "La API no devolvió una lista válida de grupos."
+        );
+      }
+
+      state.groups =
+        receivedGroups;
+
+      state.groupsLoaded = true;
+      state.groupsError = false;
+
+      console.log(
+        `${state.groups.length} grupos cargados correctamente.`
+      );
+
+      renderMuro();
+    })
+    .catch(error => {
+      state.groups = [];
+      state.groupsLoaded = false;
+      state.groupsError = true;
+
+      console.error(
+        "Error al cargar grupos:",
+        error
+      );
+
+      renderMuro();
+    });
+}
+
 /* ──────────────────────────────────────────────────────
    CARGAR EQUIPOS
 ────────────────────────────────────────────────────── */
@@ -1961,6 +2570,7 @@ function loadTeams(
 
       populateTeamSelector();
       renderGoleadas();
+      renderMuro();
 
       console.log(
         `${state.teams.length} equipos cargados correctamente.`
@@ -1996,6 +2606,7 @@ function loadTeams(
 
         populateTeamSelector();
         renderGoleadas();
+        renderMuro();
 
         console.warn(
           "Se utilizaron equipos guardados en localStorage."
@@ -2021,6 +2632,7 @@ function loadTeams(
        * Se vuelve a dibujar utilizando IDs.
        */
       renderGoleadas();
+      renderMuro();
       scheduleTeamsBackgroundRetry();
     })
     .finally(() => {
@@ -2143,6 +2755,7 @@ function loadGames() {
       }
 
       renderGoleadas();
+      renderMuro();
     })
     .catch(error => {
       console.error(
@@ -2183,6 +2796,7 @@ function loadGames() {
         }
 
         renderGoleadas();
+        renderMuro();
         return;
       }
 
@@ -2197,6 +2811,7 @@ function loadGames() {
         "No fue posible cargar los partidos y no existen datos guardados.";
 
       renderGoleadas();
+      renderMuro();
     });
 }
 
@@ -2357,6 +2972,7 @@ function init() {
 
   loadTeams();
   loadGames();
+  loadGroups();
   loadStadiums();
 
   setApiStatus(

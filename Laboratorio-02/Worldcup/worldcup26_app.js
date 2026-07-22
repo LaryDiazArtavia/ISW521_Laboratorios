@@ -1503,10 +1503,9 @@ function calculateMuroRanking() {
 
     return [...records.values()]
         .sort((a, b) =>
-            a.goalsAgainst -
-            b.goalsAgainst ||
-            Number(a.teamId) -
-            Number(b.teamId)
+          a.goalsAgainst - b.goalsAgainst ||
+          b.gamesPlayed - a.gamesPlayed ||
+          Number(a.teamId) - Number(b.teamId)
         )
         .slice(0, 5);
 }

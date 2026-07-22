@@ -1,4406 +1,3018 @@
 "use strict";
 
-/* ──────────────────────────────────────────────────────
+/* =====================================================
    CONFIGURACIÓN
-────────────────────────────────────────────────────── */
+===================================================== */
 const BASE = "https://worldcup26.ir";
+const TEST_HTTP_STATUS = null; // 2.1: null, 429 o 500
+const TEST_ANALITICA_GAMES_STATUS = null; // 2.4: null, 429 o 500
+const TEST_EMPATES_GAMES_STATUS = null; // 2.5: null o 429
+const RETRIES = [1000, 2000, 4000, 8000];
+const TEAM_RETRIES = [2000, 4000, 8000, 16000];
+const GROUPS = [..."ABCDEFGHIJKL"];
 
-/*
- * SOLO PARA PRUEBAS:
- * null = funcionamiento normal
- * 429  = simular demasiadas solicitudes
- * 500  = simular error interno
- */
-const TEST_HTTP_STATUS = null;
-
-const RETRY_DELAYS = [
-  1000,
-  2000,
-  4000,
-  8000
-];
-
-const CACHE_KEYS = {
-  teams: "worldcup26_teams",
-  games: "worldcup26_games",
-  stadiums: "worldcup26_stadiums"
+const CACHE = {
+    teams: "worldcup26_teams",
+    games: "worldcup26_games",
+    stadiums: "worldcup26_stadiums"
 };
 
-/*
- * Reintentos en segundo plano para /get/teams.
- * Estos reintentos pertenecen al reto del punto 2.2.
- */
-const TEAM_BACKGROUND_RETRY_DELAYS = [
-  2000,
-  4000,
-  8000,
-  16000
-];
+/* =====================================================
+   ESTADO Y DOM
+===================================================== */
+const state = {
+    teams: [],
+    games: [],
+    stadiums: [],
+    groups: [],
+    selectedTeam: null,
+    selectedGames: [],
 
-let teamsBackgroundRetryTimer = null;
+    loaded: {
+        teams: false,
+        games: false,
+        stadiums: false,
+        groups: false
+    },
+
+    error: {
+        teams: false,
+        games: false,
+        stadiums: false,
+        groups: false
+    },
+
+    stadiumsLoading: false,
+    teamsRetryAttempt: 0,
+
+    analitica: {
+        games: [],
+        loaded: false,
+        error: false,
+        loading: false
+    },
+
+    empates: {
+        games: [],
+        loaded: false,
+        error: false,
+        loading: false,
+        completed: false
+    },
+
+    cacheSources: {
+        teams: null,
+        games: null,
+        stadiums: null
+    }
+};
+
+const $ = id => document.getElementById(id);
+
+const setText = (element, value) => {
+    if (element) element.textContent = value;
+};
+
+const show = (element, value = "block") => {
+    if (element) element.style.display = value;
+};
+
+const hide = element => {
+    if (element) element.style.display = "none";
+};
+
+const dom = {
+    nav: document.querySelectorAll("[data-screen]"),
+    panels: document.querySelectorAll("[data-screen-panel]"),
+    apiStatus: $("apiStatus"),
+
+    resilience: {
+        box: $("resilienceBanner"),
+        title: $("resilienceTitle"),
+        message: $("resilienceMessage")
+    },
+
+    offline: {
+        box: $("offlineBanner"),
+        message: $("offlineMessage")
+    },
+
+    ruta: {
+        selection: $("teamSelectionSection"),
+        select: $("teamSelect"),
+        info: $("teamInfo"),
+        flag: $("teamFlagImg"),
+        name: $("teamName"),
+        start: $("startButton"),
+        cards: $("cardsGrid"),
+        gamesEmpty: $("gamesEmptyState"),
+        eyebrow: $("sectionEyebrow"),
+        eyebrowCount: $("eyebrowCount"),
+        citiesSection: $("citiesSection"),
+        cities: $("citiesChips"),
+        stadiums: $("stadiumsGrid"),
+        stadiumsEmpty: $("stadiumsEmptyState"),
+        alert: $("alertBanner"),
+        alertMessage: $("alertMsg"),
+        retryStadiums: $("retryStadiumsButton"),
+        stats: $("statsBar"),
+        summaryEmpty: $("summaryEmptyState"),
+        statGames: $("statGames"),
+        statCities: $("statCities"),
+        statHome: $("statHome"),
+        statAway: $("statAway"),
+        statStadiums: $("statStadiums"),
+        statCapacity: $("statCapacity")
+    },
+
+    goleadas: {
+        total: $("goleadasTotal"),
+        warning: $("goleadasTeamsWarning"),
+        warningMessage: $("goleadasTeamsWarningMessage"),
+        empty: $("goleadasEmptyState"),
+        eyebrow: $("goleadasEyebrow"),
+        count: $("goleadasCount"),
+        grid: $("goleadasGrid")
+    },
+
+    muro: {
+        total: $("muroTotal"),
+        status: $("muroStatus"),
+        statusMessage: $("muroStatusMessage"),
+        empty: $("muroEmptyState"),
+        eyebrow: $("muroEyebrow"),
+        count: $("muroCount"),
+        grid: $("muroGrid")
+    },
+
+    analitica: {
+        total: $("analiticaTotal"),
+        stadiums: $("analiticaStatStadiums"),
+        games: $("analiticaStatGames"),
+        potential: $("analiticaStatPotential"),
+        waiting: $("analiticaWaiting"),
+        waitingTitle: $("analiticaWaitingTitle"),
+        waitingMessage: $("analiticaWaitingMessage"),
+        empty: $("analiticaEmptyState"),
+        chart: $("analiticaChart"),
+        ranking: $("analiticaRanking")
+    },
+
+    empates: {
+        total: $("empatesTotal"),
+        statTotal: $("empatesStatTotal"),
+        statGroups: $("empatesStatGroups"),
+        statTop: $("empatesStatTopGroup"),
+        retry: $("empatesRetryBanner"),
+        retryTitle: $("empatesRetryTitle"),
+        retryMessage: $("empatesRetryMessage"),
+        countdown: $("empatesCountdown"),
+        empty: $("empatesEmptyState"),
+        matrix: $("empatesMatrix")
+    }
+};
+
+let teamsRetryTimer = null;
 let teamsRequestInProgress = false;
 
-/*
- * Reintentos exclusivos de /get/games
- * para la pantalla 2.4.
- */
-const ANALITICA_RETRY_DELAYS = [
-  1000,
-  2000,
-  4000,
-  8000
-];
-
-/*
- * SOLO PARA PRUEBAS POSTERIORES:
- * null = API real
- * 429  = simular límite de solicitudes
- * 500  = simular error interno
- */
-const TEST_ANALITICA_GAMES_STATUS = null;
-
-/*
- * Reintentos exclusivos de /get/games
- * para la pantalla 2.5.
- */
-const EMPATES_RETRY_DELAYS = [
-  1000,
-  2000,
-  4000,
-  8000
-];
-
-/*
- * SOLO PARA PRUEBAS POSTERIORES:
- * null = API real
- * 429  = simular demasiadas solicitudes
- */
-const TEST_EMPATES_GAMES_STATUS = null;
-
-const EMPATES_GROUPS = [
-  "A",
-  "B",
-  "C",
-  "D",
-  "E",
-  "F",
-  "G",
-  "H",
-  "I",
-  "J",
-  "K",
-  "L"
-];
-
-/* ──────────────────────────────────────────────────────
-   ESTADO DE LA APLICACIÓN
-────────────────────────────────────────────────────── */
-const state = {
-  teams: [],
-  games: [],
-  stadiums: [],
-  groups: [],
-
-  goleadas: [],
-  muroRanking: [],
-
-  analiticaGames: [],
-  analiticaRanking: [],
-
-  empatesGames: [],
-  empatesByGroup: {},
-
-  selectedTeam: null,
-  selectedGames: [],
-
-  teamsLoaded: false,
-  teamsError: false,
-  teamsRetryAttempt: 0,
-
-  gamesLoaded: false,
-  gamesError: false,
-
-  groupsLoaded: false,
-  groupsError: false,
-
-  analiticaGamesLoaded: false,
-  analiticaGamesError: false,
-  analiticaGamesLoading: false,
-  analiticaRetryAttempt: 0,
-
-  empatesGamesLoaded: false,
-  empatesGamesLoading: false,
-  empatesGamesError: false,
-  empatesRequestCompleted: false,
-
-  stadiumsLoaded: false,
-  stadiumsError: false,
-  stadiumsLoading: false,
-
-  cacheSources: {
-    teams: null,
-    games: null,
-    stadiums: null
-  }
-};
-
-/* ──────────────────────────────────────────────────────
-   SELECTORES DEL DOM
-────────────────────────────────────────────────────── */
-const teamSelectionSection =
-  document.getElementById("teamSelectionSection");
-
-const teamSelect =
-  document.getElementById("teamSelect");
-
-const teamInfo =
-  document.getElementById("teamInfo");
-
-const teamFlagImg =
-  document.getElementById("teamFlagImg");
-
-const teamName =
-  document.getElementById("teamName");
-
-const cardsGrid =
-  document.getElementById("cardsGrid");
-
-const sectionEyebrow =
-  document.getElementById("sectionEyebrow");
-
-const eyebrowCount =
-  document.getElementById("eyebrowCount");
-
-const gamesEmptyState =
-  document.getElementById("gamesEmptyState");
-
-const stadiumsEmptyState =
-  document.getElementById("stadiumsEmptyState");
-
-const stadiumsGrid =
-  document.getElementById("stadiumsGrid");
-
-const citiesSection =
-  document.getElementById("citiesSection");
-
-const citiesChips =
-  document.getElementById("citiesChips");
-
-const alertBanner =
-  document.getElementById("alertBanner");
-
-const alertMsg =
-  document.getElementById("alertMsg");
-
-const retryStadiumsButton =
-  document.getElementById("retryStadiumsButton");
-
-const statsBar =
-  document.getElementById("statsBar");
-
-const summaryEmptyState =
-  document.getElementById("summaryEmptyState");
-
-const statGames =
-  document.getElementById("statGames");
-
-const statCities =
-  document.getElementById("statCities");
-
-const statHome =
-  document.getElementById("statHome");
-
-const statAway =
-  document.getElementById("statAway");
-
-const statStadiums =
-  document.getElementById("statStadiums");
-
-const statCapacity =
-  document.getElementById("statCapacity");
-
-const apiStatus =
-  document.getElementById("apiStatus");
-
-const startButton =
-  document.getElementById("startButton");
-
-const resilienceBanner =
-  document.getElementById("resilienceBanner");
-
-const resilienceTitle =
-  document.getElementById("resilienceTitle");
-
-const resilienceMessage =
-  document.getElementById("resilienceMessage");
-
-const offlineBanner =
-  document.getElementById("offlineBanner");
-
-const offlineMessage =
-  document.getElementById("offlineMessage");
-
-/* ──────────────────────────────────────────────────────
-   NAVEGACIÓN ENTRE PANTALLAS
-────────────────────────────────────────────────────── */
-const screenNavButtons =
-  document.querySelectorAll("[data-screen]");
-
-const screenPanels =
-  document.querySelectorAll("[data-screen-panel]");
-
-/* ──────────────────────────────────────────────────────
-   SELECTORES DE LA PANTALLA 2.2
-────────────────────────────────────────────────────── */
-const goleadasTotal =
-  document.getElementById("goleadasTotal");
-
-const goleadasTeamsWarning =
-  document.getElementById("goleadasTeamsWarning");
-
-const goleadasTeamsWarningMessage =
-  document.getElementById(
-    "goleadasTeamsWarningMessage"
-  );
-
-const goleadasEmptyState =
-  document.getElementById("goleadasEmptyState");
-
-const goleadasEyebrow =
-  document.getElementById("goleadasEyebrow");
-
-const goleadasCount =
-  document.getElementById("goleadasCount");
-
-const goleadasGrid =
-  document.getElementById("goleadasGrid");
-
-/* ──────────────────────────────────────────────────────
-   SELECTORES DE LA PANTALLA 2.3
-────────────────────────────────────────────────────── */
-
-const muroTotal =
-  document.getElementById("muroTotal");
-
-const muroStatus =
-  document.getElementById("muroStatus");
-
-const muroStatusMessage =
-  document.getElementById("muroStatusMessage");
-
-const muroEmptyState =
-  document.getElementById("muroEmptyState");
-
-const muroEyebrow =
-  document.getElementById("muroEyebrow");
-
-const muroCount =
-  document.getElementById("muroCount");
-
-const muroGrid =
-  document.getElementById("muroGrid");
-
-/* ──────────────────────────────────────────────────────
-   SELECTORES DE LA PANTALLA 2.4
-────────────────────────────────────────────────────── */
-
-const analiticaTotal =
-  document.getElementById("analiticaTotal");
-
-const analiticaStatStadiums =
-  document.getElementById("analiticaStatStadiums");
-
-const analiticaStatGames =
-  document.getElementById("analiticaStatGames");
-
-const analiticaStatPotential =
-  document.getElementById("analiticaStatPotential");
-
-const analiticaWaiting =
-  document.getElementById("analiticaWaiting");
-
-const analiticaWaitingTitle =
-  document.getElementById("analiticaWaitingTitle");
-
-const analiticaWaitingMessage =
-  document.getElementById("analiticaWaitingMessage");
-
-const analiticaEmptyState =
-  document.getElementById("analiticaEmptyState");
-
-const analiticaChart =
-  document.getElementById("analiticaChart");
-
-const analiticaRanking =
-  document.getElementById("analiticaRanking");
-
-/* ──────────────────────────────────────────────────────
-   SELECTORES DE LA PANTALLA 2.5
-────────────────────────────────────────────────────── */
-
-const empatesTotal =
-  document.getElementById("empatesTotal");
-
-const empatesStatTotal =
-  document.getElementById("empatesStatTotal");
-
-const empatesStatGroups =
-  document.getElementById("empatesStatGroups");
-
-const empatesStatTopGroup =
-  document.getElementById("empatesStatTopGroup");
-
-const empatesRetryBanner =
-  document.getElementById("empatesRetryBanner");
-
-const empatesRetryTitle =
-  document.getElementById("empatesRetryTitle");
-
-const empatesRetryMessage =
-  document.getElementById("empatesRetryMessage");
-
-const empatesCountdown =
-  document.getElementById("empatesCountdown");
-
-const empatesEmptyState =
-  document.getElementById("empatesEmptyState");
-
-const empatesMatrix =
-  document.getElementById("empatesMatrix");
-
-/* ──────────────────────────────────────────────────────
-   UTILIDADES DE ESTADO VISUAL
-────────────────────────────────────────────────────── */
-function setApiStatus(message) {
-  if (apiStatus) {
-    apiStatus.textContent = message;
-  }
+/* =====================================================
+   HTTP, BACKOFF Y CACHÉ
+===================================================== */
+
+/* Simula errores sin servidor mock. */
+function fetchWithTestStatus(url, status = null) {
+    if (![429, 500].includes(status)) {
+        return fetch(url);
+    }
+
+    return Promise.resolve(
+        new Response(
+            JSON.stringify({
+                simulated: true,
+                status
+            }),
+            {
+                status,
+                statusText:
+                    status === 429
+                        ? "Too Many Requests"
+                        : "Internal Server Error",
+                headers: {
+                    "Content-Type": "application/json"
+                }
+            }
+        )
+    );
 }
 
-function showResilienceBanner(title, message) {
-  resilienceTitle.textContent = title;
-  resilienceMessage.textContent = message;
-  resilienceBanner.hidden = false;
+/* Countdown antes del próximo intento. */
+function waitCountdown(milliseconds, onTick) {
+    let seconds = Math.ceil(milliseconds / 1000);
+    onTick?.(seconds, false);
+
+    return new Promise(resolve => {
+        const timer = setInterval(() => {
+            seconds -= 1;
+
+            if (seconds <= 0) {
+                clearInterval(timer);
+                onTick?.(0, true);
+                resolve();
+            } else {
+                onTick?.(seconds, false);
+            }
+        }, 1000);
+    });
 }
 
-function hideResilienceBanner() {
-  resilienceBanner.hidden = true;
+/* Petición reutilizable con backoff exponencial. */
+function fetchJsonWithBackoff(options, attempt = 0) {
+    const {
+        url,
+        label,
+        testStatus = null,
+        retryStatuses = [429, 500],
+        delays = RETRIES,
+        onRetry
+    } = options;
+
+    return fetchWithTestStatus(url, testStatus)
+        .then(response => {
+            if (response.ok) {
+                return response.json();
+            }
+
+            if (!retryStatuses.includes(response.status)) {
+                throw new Error(
+                    `Error HTTP ${response.status} en ${label}`
+                );
+            }
+
+            if (attempt >= delays.length) {
+                throw new Error(
+                    `Se agotaron los reintentos para ${label}. ` +
+                    `Último estado: ${response.status}`
+                );
+            }
+
+            const delay = delays[attempt];
+
+            console.warn(
+                `${label}: HTTP ${response.status}. ` +
+                `Reintento ${attempt + 1} en ${delay / 1000}s.`
+            );
+
+            return waitCountdown(delay, (seconds, retrying) => {
+                onRetry?.({
+                    status: response.status,
+                    seconds,
+                    retrying
+                });
+            }).then(() => {
+                return fetchJsonWithBackoff(options, attempt + 1);
+            });
+        });
+}
+
+function saveCache(key, data) {
+    try {
+        localStorage.setItem(
+            key,
+            JSON.stringify({
+                savedAt: new Date().toISOString(),
+                data
+            })
+        );
+    } catch (error) {
+        console.warn(`No se pudo guardar ${key}:`, error);
+    }
+}
+
+function readCache(key) {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(key));
+
+        return (
+            parsed &&
+            Array.isArray(parsed.data) &&
+            parsed.savedAt
+                ? parsed
+                : null
+        );
+    } catch (error) {
+        console.warn(`No se pudo leer ${key}:`, error);
+        return null;
+    }
+}
+
+function formatCacheDate(value) {
+    const date = new Date(value);
+
+    return Number.isNaN(date.getTime())
+        ? "fecha desconocida"
+        : new Intl.DateTimeFormat("es-CR", {
+            dateStyle: "medium",
+            timeStyle: "short"
+        }).format(date);
+}
+
+function markCache(resource, savedAt = null) {
+    state.cacheSources[resource] = savedAt;
+
+    const labels = {
+        teams: "equipos",
+        games: "partidos",
+        stadiums: "estadios"
+    };
+
+    const cached = Object
+        .entries(state.cacheSources)
+        .filter(([, date]) => date)
+        .map(([name, date]) => {
+            return `${labels[name]} (${formatCacheDate(date)})`;
+        });
+
+    if (!dom.offline.box) return;
+
+    dom.offline.box.hidden = cached.length === 0;
+
+    if (cached.length) {
+        setText(
+            dom.offline.message,
+            `Datos no actualizados: ${cached.join(", ")}.`
+        );
+    }
+}
+
+function showResilience(title, message) {
+    setText(dom.resilience.title, title);
+    setText(dom.resilience.message, message);
+
+    if (dom.resilience.box) {
+        dom.resilience.box.hidden = false;
+    }
+}
+
+function hideResilience() {
+    if (dom.resilience.box) {
+        dom.resilience.box.hidden = true;
+    }
 }
 
 function showStadiumAlert(message) {
-  alertMsg.textContent = message;
-  alertBanner.hidden = false;
+    setText(dom.ruta.alertMessage, message);
+
+    if (dom.ruta.alert) {
+        dom.ruta.alert.hidden = false;
+    }
 }
 
 function hideStadiumAlert() {
-  alertBanner.hidden = true;
-}
-
-/* ──────────────────────────────────────────────────────
-   GUARDAR DATOS EN LOCALSTORAGE
-────────────────────────────────────────────────────── */
-function saveToCache(cacheKey, data) {
-  const cacheData = {
-    savedAt: new Date().toISOString(),
-    data
-  };
-
-  try {
-    localStorage.setItem(
-      cacheKey,
-      JSON.stringify(cacheData)
-    );
-
-    return true;
-  } catch (error) {
-    console.warn(
-      `No fue posible guardar ${cacheKey}:`,
-      error
-    );
-
-    return false;
-  }
-}
-
-/* ──────────────────────────────────────────────────────
-   LEER DATOS DE LOCALSTORAGE
-────────────────────────────────────────────────────── */
-function getFromCache(cacheKey) {
-  try {
-    const storedValue =
-      localStorage.getItem(cacheKey);
-
-    if (!storedValue) {
-      return null;
+    if (dom.ruta.alert) {
+        dom.ruta.alert.hidden = true;
     }
+}
 
-    const parsedValue =
-      JSON.parse(storedValue);
-
-    if (
-      !parsedValue ||
-      !Array.isArray(parsedValue.data) ||
-      !parsedValue.savedAt
-    ) {
-      return null;
-    }
-
-    return parsedValue;
-  } catch (error) {
-    console.warn(
-      `No fue posible leer ${cacheKey}:`,
-      error
+/* =====================================================
+   UTILIDADES DE DATOS
+===================================================== */
+const getTeamById = id => {
+    return state.teams.find(
+        team => String(team.id) === String(id)
     );
+};
 
-    return null;
-  }
-}
-
-/* ──────────────────────────────────────────────────────
-   FORMATEAR FECHA DEL RESPALDO
-────────────────────────────────────────────────────── */
-function formatCacheDate(savedAt) {
-  const date = new Date(savedAt);
-
-  if (Number.isNaN(date.getTime())) {
-    return "fecha desconocida";
-  }
-
-  return new Intl.DateTimeFormat("es-CR", {
-    dateStyle: "medium",
-    timeStyle: "short"
-  }).format(date);
-}
-
-/* ──────────────────────────────────────────────────────
-   ACTUALIZAR AVISO DE DATOS GUARDADOS
-────────────────────────────────────────────────────── */
-function updateOfflineBanner() {
-  const labels = {
-    teams: "equipos",
-    games: "partidos",
-    stadiums: "estadios"
-  };
-
-  const cachedResources =
-    Object.entries(state.cacheSources)
-      .filter(([, savedAt]) => savedAt)
-      .map(([resourceName, savedAt]) => {
-        return (
-          `${labels[resourceName]} ` +
-          `(${formatCacheDate(savedAt)})`
-        );
-      });
-
-  if (cachedResources.length === 0) {
-    offlineBanner.hidden = true;
-    return;
-  }
-
-  offlineMessage.textContent =
-    "Datos no actualizados utilizados: " +
-    cachedResources.join(", ") +
-    ".";
-
-  offlineBanner.hidden = false;
-}
-
-function markResourceAsCached(
-  resourceName,
-  savedAt
-) {
-  state.cacheSources[resourceName] = savedAt;
-  updateOfflineBanner();
-}
-
-function markResourceAsFresh(resourceName) {
-  state.cacheSources[resourceName] = null;
-  updateOfflineBanner();
-}
-
-/* ──────────────────────────────────────────────────────
-   COUNTDOWN DE REINTENTOS
-────────────────────────────────────────────────────── */
-function runRetryCountdown(
-  seconds,
-  endpointName,
-  statusCode
-) {
-  return new Promise(resolve => {
-    let remainingSeconds = seconds;
-
-    const updateMessage = () => {
-      showResilienceBanner(
-        `Error HTTP ${statusCode} en ${endpointName}`,
-        `Nuevo intento en ${remainingSeconds} segundo${
-          remainingSeconds === 1 ? "" : "s"
-        }.`
-      );
-    };
-
-    updateMessage();
-
-    const countdownInterval =
-      setInterval(() => {
-        remainingSeconds -= 1;
-
-        if (remainingSeconds <= 0) {
-          clearInterval(countdownInterval);
-
-          showResilienceBanner(
-            `Reintentando ${endpointName}`,
-            "Realizando una nueva petición..."
-          );
-
-          resolve();
-          return;
-        }
-
-        updateMessage();
-      }, 1000);
-  });
-}
-
-/* ──────────────────────────────────────────────────────
-   FETCH CON REINTENTOS PARA 429 Y 500
-────────────────────────────────────────────────────── */
-function fetchJsonWithRetry(
-  endpoint,
-  endpointName,
-  attempt = 0
-) {
-  const requestUrl =
-    TEST_HTTP_STATUS === 429 ||
-    TEST_HTTP_STATUS === 500
-      ? `http://localhost:3001/status/${TEST_HTTP_STATUS}`
-      : `${BASE}${endpoint}`;
-
-  return fetch(requestUrl)
-    .then(response => {
-      if (response.ok) {
-        hideResilienceBanner();
-        return response.json();
-      }
-
-      const isRetryable =
-        response.status === 429 ||
-        response.status === 500;
-
-      if (!isRetryable) {
-        throw new Error(
-          `Error HTTP ${response.status} en ${endpointName}`
-        );
-      }
-
-      if (attempt >= RETRY_DELAYS.length) {
-        throw new Error(
-          `Se agotaron los reintentos para ${endpointName}. ` +
-          `Último estado HTTP: ${response.status}`
-        );
-      }
-
-      const retryAfterHeader =
-        Number(
-          response.headers.get("Retry-After")
-        );
-
-      const delayMilliseconds =
-        response.status === 429 &&
-        Number.isFinite(retryAfterHeader) &&
-        retryAfterHeader > 0
-          ? retryAfterHeader * 1000
-          : RETRY_DELAYS[attempt];
-
-      const delaySeconds =
-        Math.ceil(
-          delayMilliseconds / 1000
-        );
-
-      console.warn(
-        `${endpointName} devolvió HTTP ${response.status}. ` +
-        `Reintento ${attempt + 1} en ${delaySeconds}s.`
-      );
-
-      return runRetryCountdown(
-        delaySeconds,
-        endpointName,
-        response.status
-      ).then(() => {
-        return fetchJsonWithRetry(
-          endpoint,
-          endpointName,
-          attempt + 1
-        );
-      });
-    });
-}
-
-/* ──────────────────────────────────────────────────────
-   NAVEGACIÓN INTERNA DE LA RUTA DEL CAMPEÓN
-────────────────────────────────────────────────────── */
-function configureInternalNavigation() {
-  if (
-    startButton &&
-    teamSelectionSection
-  ) {
-    startButton.addEventListener(
-      "click",
-      () => {
-        teamSelectionSection.scrollIntoView({
-          behavior: "smooth",
-          block: "start"
-        });
-
-        window.setTimeout(() => {
-          teamSelect.focus();
-        }, 500);
-      }
+const getStadiumById = id => {
+    return state.stadiums.find(
+        stadium => String(stadium.id) === String(id)
     );
-  }
+};
 
-  if (retryStadiumsButton) {
-    retryStadiumsButton.addEventListener(
-      "click",
-      () => {
-        loadStadiums();
-      }
-    );
-  }
-}
+function getTeamData(id, fallbackName, showId = false) {
+    const team = getTeamById(id);
 
-/* ──────────────────────────────────────────────────────
-   MOSTRAR UNA PANTALLA DEL LABORATORIO
-────────────────────────────────────────────────────── */
-function showScreen(
-  screenName,
-  moveToTop = true
-) {
-  screenPanels.forEach(panel => {
-    const isActive =
-      panel.dataset.screenPanel ===
-      screenName;
-
-    panel.classList.toggle(
-      "active",
-      isActive
-    );
-
-    panel.hidden = !isActive;
-  });
-
-  screenNavButtons.forEach(button => {
-    const isActive =
-      button.dataset.screen ===
-      screenName;
-
-    button.classList.toggle(
-      "active",
-      isActive
-    );
-
-    if (isActive) {
-      button.setAttribute(
-        "aria-current",
-        "page"
-      );
-    } else {
-      button.removeAttribute(
-        "aria-current"
-      );
-    }
-  });
-
-  if (screenName === "goleadas") {
-    renderGoleadas();
-  }
-
-  if (screenName === "muro") {
-  renderMuro();
-  }
-
-  if (screenName === "analitica") {
-  renderAnalitica();
-
-    if (
-      !state.analiticaGamesLoaded &&
-      !state.analiticaGamesLoading
-    ) {
-      loadAnaliticaGames();
-    }
-  }
-
-  if (screenName === "empates") {
-    syncEmpatesFromMainGames();
-    renderEmpates();
-
-    if (
-      !state.empatesRequestCompleted &&
-      !state.empatesGamesLoading
-    ) {
-      loadEmpatesGames();
-    }
-  }
-
-  if (moveToTop) {
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth"
-    });
-  }
-}
-
-/* ──────────────────────────────────────────────────────
-   CONFIGURAR BOTONES DE NAVEGACIÓN
-────────────────────────────────────────────────────── */
-function configureScreenNavigation() {
-  screenNavButtons.forEach(button => {
-    button.addEventListener(
-      "click",
-      () => {
-        if (button.disabled) {
-          return;
-        }
-
-        showScreen(
-          button.dataset.screen
-        );
-      }
-    );
-  });
-}
-
-/* ──────────────────────────────────────────────────────
-   BUSCAR EQUIPO POR ID
-────────────────────────────────────────────────────── */
-function getTeamById(teamId) {
-  return state.teams.find(
-    team =>
-      String(team.id) ===
-      String(teamId)
-  );
-}
-
-/* ──────────────────────────────────────────────────────
-   BUSCAR ESTADIO POR ID
-────────────────────────────────────────────────────── */
-function getStadiumById(stadiumId) {
-  return state.stadiums.find(
-    stadium =>
-      String(stadium.id) ===
-      String(stadiumId)
-  );
-}
-
-/* ──────────────────────────────────────────────────────
-   CONVERTIR FECHA DE LA API
-────────────────────────────────────────────────────── */
-function parseLocalDate(localDate) {
-  if (
-    !localDate ||
-    typeof localDate !== "string"
-  ) {
-    return new Date(NaN);
-  }
-
-  const [
-    datePart,
-    timePart = "00:00"
-  ] = localDate.trim().split(" ");
-
-  const [
-    month,
-    day,
-    year
-  ] = datePart
-    .split("/")
-    .map(Number);
-
-  const [
-    hour,
-    minute
-  ] = timePart
-    .split(":")
-    .map(Number);
-
-  return new Date(
-    year,
-    month - 1,
-    day,
-    hour,
-    minute
-  );
-}
-
-/* ──────────────────────────────────────────────────────
-   FORMATEAR FECHA PARA MOSTRARLA
-────────────────────────────────────────────────────── */
-function formatLocalDate(localDate) {
-  const date =
-    parseLocalDate(localDate);
-
-  if (Number.isNaN(date.getTime())) {
-    return (
-      localDate ||
-      "Fecha no disponible"
-    );
-  }
-
-  return new Intl.DateTimeFormat(
-    "es-CR",
-    {
-      dateStyle: "long",
-      timeStyle: "short"
-    }
-  ).format(date);
-}
-
-/* ──────────────────────────────────────────────────────
-   IDENTIFICAR LA FASE DEL PARTIDO
-────────────────────────────────────────────────────── */
-function getMatchPhase(game) {
-  const phaseCode =
-    String(game.group ?? "")
-      .trim()
-      .toUpperCase();
-
-  if (/^[A-L]$/.test(phaseCode)) {
     return {
-      text: `Grupo ${phaseCode}`,
-      showMatchday: true
+        id,
+        name:
+            team?.name_en ??
+            (
+                showId &&
+                !state.loaded.teams
+                    ? `Equipo ID ${id}`
+                    : fallbackName
+            ) ??
+            `Equipo ${id}`,
+        flag: team?.flag ?? ""
     };
-  }
-
-  const knockoutPhases = {
-    R32: "Ronda de 32",
-    R16: "Octavos de final",
-    QF: "Cuartos de final",
-    SF: "Semifinal",
-    F: "Final",
-    FINAL: "Final"
-  };
-
-  return {
-    text:
-      knockoutPhases[phaseCode] ??
-      "Fase eliminatoria",
-
-    showMatchday: false
-  };
 }
 
-/* ═══════════════════════════════════════════════════════
-   PANTALLA 2.2: RASTREADOR DE GOLEADAS
-═══════════════════════════════════════════════════════ */
+function flagMarkup(team, placeholderClass) {
+    return team.flag
+        ? `
+        <img
+          src="${team.flag}"
+          alt="Bandera de ${team.name}"
+          loading="lazy"
+        >
+      `
+        : `
+        <span
+          class="${placeholderClass}"
+          aria-label="Bandera no disponible"
+        >
+          ID
+        </span>
+      `;
+}
 
-/* Determina si un partido ya terminó */
+function parseLocalDate(value) {
+    if (!value || typeof value !== "string") {
+        return new Date(NaN);
+    }
+
+    const [datePart, timePart = "00:00"] =
+        value.trim().split(" ");
+
+    const [month, day, year] =
+        datePart.split("/").map(Number);
+
+    const [hour, minute] =
+        timePart.split(":").map(Number);
+
+    return new Date(
+        year,
+        month - 1,
+        day,
+        hour,
+        minute
+    );
+}
+
+function formatLocalDate(value) {
+    const date = parseLocalDate(value);
+
+    return Number.isNaN(date.getTime())
+        ? value || "Fecha no disponible"
+        : new Intl.DateTimeFormat("es-CR", {
+            dateStyle: "long",
+            timeStyle: "short"
+        }).format(date);
+}
+
 function isFinishedGame(game) {
-  if (game.finished === true) {
-    return true;
-  }
-
-  const finishedValue =
-    String(game.finished ?? "")
-      .trim()
-      .toUpperCase();
-
-  return (
-    finishedValue === "TRUE" ||
-    finishedValue === "FINISHED"
-  );
+    return (
+        game.finished === true ||
+        ["TRUE", "FINISHED"].includes(
+            String(game.finished ?? "")
+                .trim()
+                .toUpperCase()
+        )
+    );
 }
 
-/* Convierte un marcador a número */
-function parseGameScore(score) {
-  if (
-    score === null ||
-    score === undefined ||
-    score === ""
-  ) {
-    return null;
-  }
+function parseScore(value) {
+    if (
+        value === null ||
+        value === undefined ||
+        value === ""
+    ) {
+        return null;
+    }
 
-  const numericScore =
-    Number(score);
+    const number = Number(value);
 
-  return Number.isFinite(
-    numericScore
-  )
-    ? numericScore
-    : null;
+    return Number.isFinite(number)
+        ? number
+        : null;
 }
 
-/* Obtiene los datos visibles de un equipo */
-function getGoleadaTeamData(
-  teamId,
-  apiFallbackName
-) {
-  const team =
-    getTeamById(teamId);
+function getMatchPhase(game) {
+    const code = String(game.group ?? "")
+        .trim()
+        .toUpperCase();
 
-  if (state.teamsLoaded && team) {
-    return {
-      id: teamId,
-      name:
-        team.name_en ??
-        `Equipo ID ${teamId}`,
-      flag: team.flag ?? "",
-      dataAvailable: true
+    if (/^[A-L]$/.test(code)) {
+        return {
+            text: `Grupo ${code}`,
+            showMatchday: true
+        };
+    }
+
+    const phases = {
+        R32: "Ronda de 32",
+        R16: "Octavos de final",
+        QF: "Cuartos de final",
+        SF: "Semifinal",
+        F: "Final",
+        FINAL: "Final"
     };
-  }
 
-  /*
-   * Si /get/teams todavía no está disponible,
-   * se debe mostrar el identificador.
-   */
-  if (!state.teamsLoaded) {
     return {
-      id: teamId,
-      name: `Equipo ID ${teamId}`,
-      flag: "",
-      dataAvailable: false
+        text: phases[code] ?? "Fase eliminatoria",
+        showMatchday: false
     };
-  }
-
-  return {
-    id: teamId,
-    name:
-      apiFallbackName ??
-      `Equipo ID ${teamId}`,
-    flag: "",
-    dataAvailable: false
-  };
 }
 
-/* Calcula y ordena todas las goleadas */
-function calculateGoleadas() {
-  state.goleadas =
-    state.games
-      .filter(game => {
-        return isFinishedGame(game);
-      })
-      .map(game => {
-        const homeScore =
-          parseGameScore(
-            game.home_score
-          );
+/* =====================================================
+   NAVEGACIÓN
+===================================================== */
+function showScreen(name, moveToTop = true) {
+    dom.panels.forEach(panel => {
+        const active =
+            panel.dataset.screenPanel === name;
 
-        const awayScore =
-          parseGameScore(
-            game.away_score
-          );
+        panel.hidden = !active;
+        panel.classList.toggle("active", active);
+    });
+
+    dom.nav.forEach(button => {
+        const active =
+            button.dataset.screen === name;
+
+        button.classList.toggle("active", active);
+
+        if (active) {
+            button.setAttribute("aria-current", "page");
+        } else {
+            button.removeAttribute("aria-current");
+        }
+    });
+
+    if (name === "goleadas") {
+        renderGoleadas();
+    }
+
+    if (name === "muro") {
+        renderMuro();
+    }
+
+    if (name === "analitica") {
+        renderAnalitica();
 
         if (
-          homeScore === null ||
-          awayScore === null
+            !state.analitica.loaded &&
+            !state.analitica.loading
         ) {
-          return null;
+            loadAnaliticaGames();
         }
-
-        return {
-          game,
-          homeScore,
-          awayScore,
-          difference: Math.abs(
-            homeScore - awayScore
-          )
-        };
-      })
-      .filter(result => {
-        return (
-          result !== null &&
-          result.difference >= 3
-        );
-      })
-      .sort((resultA, resultB) => {
-        const differenceOrder =
-          resultB.difference -
-          resultA.difference;
-
-        if (differenceOrder !== 0) {
-          return differenceOrder;
-        }
-
-        return (
-          Number(resultA.game.id || 0) -
-          Number(resultB.game.id || 0)
-        );
-      });
-
-  return state.goleadas;
-}
-
-/* Crea el elemento visual de una bandera */
-function createGoleadaFlagMarkup(team) {
-  if (team.flag) {
-    return `
-      <img
-        src="${team.flag}"
-        alt="Bandera de ${team.name}"
-        loading="lazy"
-      >
-    `;
-  }
-
-  return `
-    <span
-      class="goleada-flag-placeholder"
-      aria-label="Bandera no disponible"
-    >
-      ID
-    </span>
-  `;
-}
-
-/* Crea una tarjeta de goleada */
-function createGoleadaCard(result) {
-  const {
-    game,
-    homeScore,
-    awayScore,
-    difference
-  } = result;
-
-  const homeTeam =
-    getGoleadaTeamData(
-      game.home_team_id,
-      game.home_team_name_en
-    );
-
-  const awayTeam =
-    getGoleadaTeamData(
-      game.away_team_id,
-      game.away_team_name_en
-    );
-
-  const homeIsWinner =
-    homeScore > awayScore;
-
-  const awayIsWinner =
-    awayScore > homeScore;
-
-  const matchPhase =
-    getMatchPhase(game);
-
-  const card =
-    document.createElement(
-      "article"
-    );
-
-  card.className =
-    "goleada-card";
-
-  card.innerHTML = `
-    <div class="goleada-card-top">
-      <div>
-        <span class="goleada-phase">
-          ${matchPhase.text}
-        </span>
-
-        <p class="goleada-date">
-          ${formatLocalDate(game.local_date)}
-        </p>
-      </div>
-
-      <span class="goleada-difference">
-        Diferencia: ${difference}
-      </span>
-    </div>
-
-    <div class="goleada-match">
-
-      <div class="goleada-team ${
-        homeIsWinner ? "winner" : ""
-      }">
-        <div class="goleada-flag">
-          ${createGoleadaFlagMarkup(homeTeam)}
-        </div>
-
-        <span class="goleada-team-role">
-          Local
-        </span>
-
-        <strong>
-          ${homeTeam.name}
-        </strong>
-      </div>
-
-      <div class="goleada-score">
-        <span>
-          ${homeScore}
-        </span>
-
-        <small>
-          —
-        </small>
-
-        <span>
-          ${awayScore}
-        </span>
-      </div>
-
-      <div class="goleada-team ${
-        awayIsWinner ? "winner" : ""
-      }">
-        <div class="goleada-flag">
-          ${createGoleadaFlagMarkup(awayTeam)}
-        </div>
-
-        <span class="goleada-team-role">
-          Visitante
-        </span>
-
-        <strong>
-          ${awayTeam.name}
-        </strong>
-      </div>
-
-    </div>
-  `;
-
-  return card;
-}
-
-/* Muestra las goleadas en la pantalla */
-function renderGoleadas() {
-  if (
-    !goleadasGrid ||
-    !goleadasEmptyState
-  ) {
-    return;
-  }
-
-  goleadasGrid.innerHTML = "";
-
-  goleadasTotal.textContent = "0";
-  goleadasCount.textContent = "0";
-
-  goleadasEyebrow.classList.remove(
-    "visible"
-  );
-
-  if (!state.gamesLoaded) {
-    goleadasEmptyState.style.display =
-      "block";
-
-    goleadasEmptyState.textContent =
-      state.gamesError
-        ? "No fue posible cargar los partidos."
-        : "Cargando los partidos terminados...";
-
-    return;
-  }
-
-  const results =
-    calculateGoleadas();
-
-  const teamsUnavailable =
-    !state.teamsLoaded;
-
-  goleadasTeamsWarning.hidden =
-    !teamsUnavailable;
-
-  if (teamsUnavailable) {
-    goleadasTeamsWarningMessage.textContent =
-      "Las goleadas permanecen visibles usando los identificadores de los equipos. /get/teams se reintentará automáticamente en segundo plano.";
-  }
-
-  goleadasTotal.textContent =
-    String(results.length);
-
-  goleadasCount.textContent =
-    String(results.length);
-
-  if (results.length === 0) {
-    goleadasEmptyState.style.display =
-      "block";
-
-    goleadasEmptyState.textContent =
-      "No se encontraron partidos terminados con una diferencia de tres o más goles.";
-
-    return;
-  }
-
-  goleadasEmptyState.style.display =
-    "none";
-
-  goleadasEyebrow.classList.add(
-    "visible"
-  );
-
-  results.forEach(result => {
-    goleadasGrid.appendChild(
-      createGoleadaCard(result)
-    );
-  });
-}
-
-/* ──────────────────────────────────────────────────────
-   POBLAR SELECTOR DE EQUIPOS
-────────────────────────────────────────────────────── */
-function populateTeamSelector() {
-  const sortedTeams =
-    [...state.teams].sort(
-      (teamA, teamB) => {
-        return (
-          teamA.name_en ?? ""
-        ).localeCompare(
-          teamB.name_en ?? ""
-        );
-      }
-    );
-
-  teamSelect.innerHTML =
-    `<option value="">` +
-    `— Selecciona un equipo (${sortedTeams.length}) —` +
-    `</option>`;
-
-  sortedTeams.forEach(team => {
-    const option =
-      document.createElement("option");
-
-    option.value =
-      String(team.id);
-
-    option.textContent =
-      team.name_en ??
-      `Equipo ${team.id}`;
-
-    teamSelect.appendChild(option);
-  });
-
-  teamSelect.disabled = false;
-}
-
-/* ──────────────────────────────────────────────────────
-   MOSTRAR EQUIPO SELECCIONADO
-────────────────────────────────────────────────────── */
-function renderSelectedTeam(team) {
-  teamFlagImg.src =
-    team.flag;
-
-  teamFlagImg.alt =
-    `Bandera de ${team.name_en}`;
-
-  teamName.textContent =
-    team.name_en ??
-    `Equipo ${team.id}`;
-
-  teamInfo.style.display = "flex";
-}
-
-/* ──────────────────────────────────────────────────────
-   LIMPIAR EQUIPO SELECCIONADO
-────────────────────────────────────────────────────── */
-function clearSelectedTeam() {
-  state.selectedTeam = null;
-  state.selectedGames = [];
-
-  teamInfo.style.display = "none";
-  teamFlagImg.src = "";
-  teamName.textContent = "—";
-
-  cardsGrid.innerHTML = "";
-
-  eyebrowCount.textContent = "0";
-
-  sectionEyebrow.classList.remove(
-    "visible"
-  );
-
-  gamesEmptyState.style.display =
-    "block";
-
-  gamesEmptyState.textContent =
-    "Seleccione un equipo para consultar su itinerario.";
-
-  stadiumsGrid.innerHTML = "";
-  citiesChips.innerHTML = "";
-
-  citiesSection.style.display =
-    "none";
-
-  hideStadiumAlert();
-
-  stadiumsEmptyState.style.display =
-    "block";
-
-  stadiumsEmptyState.textContent =
-    "Seleccione un equipo para consultar las ciudades y estadios de su itinerario.";
-
-  statsBar.style.display = "none";
-
-  summaryEmptyState.style.display =
-    "block";
-
-  summaryEmptyState.textContent =
-    "Seleccione un equipo para generar el resumen.";
-
-  statGames.textContent = "—";
-  statCities.textContent = "—";
-  statHome.textContent = "—";
-  statAway.textContent = "—";
-  statStadiums.textContent = "—";
-  statCapacity.textContent = "—";
-}
-
-/* ──────────────────────────────────────────────────────
-   EVENTO DEL SELECTOR DE EQUIPOS
-────────────────────────────────────────────────────── */
-function addEventToTeamSelect() {
-  teamSelect.addEventListener(
-    "change",
-    () => {
-      const teamId =
-        teamSelect.value;
-
-      if (!teamId) {
-        clearSelectedTeam();
-        return;
-      }
-
-      const selectedTeam =
-        getTeamById(teamId);
-
-      if (!selectedTeam) {
-        console.error(
-          "No se encontró el equipo seleccionado."
-        );
-
-        clearSelectedTeam();
-        return;
-      }
-
-      state.selectedTeam =
-        selectedTeam;
-
-      renderSelectedTeam(
-        selectedTeam
-      );
-
-      updateSelectedTeamGames();
-      renderStadiumsSection();
-      renderSummarySection();
-
-      console.log(
-        "Equipo seleccionado:",
-        selectedTeam
-      );
     }
-  );
-}
 
-/* ──────────────────────────────────────────────────────
-   FILTRAR Y ORDENAR PARTIDOS DEL EQUIPO
-────────────────────────────────────────────────────── */
-function updateSelectedTeamGames() {
-  if (!state.selectedTeam) {
-    return;
-  }
+    if (name === "empates") {
+        syncEmpatesFromGames();
+        renderEmpates();
 
-  if (!state.gamesLoaded) {
-    gamesEmptyState.style.display =
-      "block";
-
-    gamesEmptyState.textContent =
-      "Los partidos todavía se están cargando.";
-
-    return;
-  }
-
-  const selectedTeamId =
-    String(
-      state.selectedTeam.id
-    );
-
-  state.selectedGames =
-    state.games
-      .filter(game => {
-        return (
-          String(
-            game.home_team_id
-          ) === selectedTeamId ||
-          String(
-            game.away_team_id
-          ) === selectedTeamId
-        );
-      })
-      .sort(
-        (gameA, gameB) => {
-          return (
-            parseLocalDate(
-              gameA.local_date
-            ) -
-            parseLocalDate(
-              gameB.local_date
-            )
-          );
+        if (
+            !state.empates.completed &&
+            !state.empates.loading
+        ) {
+            loadEmpatesGames();
         }
-      );
+    }
 
-  renderGames();
+    if (moveToTop) {
+        window.scrollTo({
+            top: 0,
+            behavior: "smooth"
+        });
+    }
 }
 
-/* ──────────────────────────────────────────────────────
-   CREAR TARJETA DE PARTIDO
-────────────────────────────────────────────────────── */
+function configureNavigation() {
+    dom.nav.forEach(button => {
+        button.addEventListener("click", () => {
+            if (!button.disabled) {
+                showScreen(button.dataset.screen);
+            }
+        });
+    });
+
+    dom.ruta.start?.addEventListener("click", () => {
+        dom.ruta.selection?.scrollIntoView({
+            behavior: "smooth",
+            block: "start"
+        });
+
+        setTimeout(() => {
+            dom.ruta.select?.focus();
+        }, 500);
+    });
+
+    dom.ruta.retryStadiums?.addEventListener(
+        "click",
+        loadStadiums
+    );
+
+    dom.ruta.select?.addEventListener(
+        "change",
+        selectTeam
+    );
+}
+
+/* =====================================================
+   2.1 LA RUTA DEL CAMPEÓN
+===================================================== */
+
+/* Llena el selector con los equipos de la API. */
+function populateTeamSelector() {
+    const teams = [...state.teams].sort(
+        (a, b) =>
+            (a.name_en ?? "").localeCompare(
+                b.name_en ?? ""
+            )
+    );
+
+    dom.ruta.select.innerHTML = `
+    <option value="">
+      — Selecciona un equipo (${teams.length}) —
+    </option>
+    ${teams.map(team => `
+      <option value="${team.id}">
+        ${team.name_en ?? `Equipo ${team.id}`}
+      </option>
+    `).join("")}
+  `;
+
+    dom.ruta.select.disabled = false;
+}
+
+/* Restablece la pantalla cuando no hay equipo seleccionado. */
+function clearSelectedTeam() {
+    state.selectedTeam = null;
+    state.selectedGames = [];
+
+    hide(dom.ruta.info);
+
+    if (dom.ruta.flag) {
+        dom.ruta.flag.src = "";
+        dom.ruta.flag.alt = "";
+    }
+
+    setText(dom.ruta.name, "—");
+    setText(dom.ruta.eyebrowCount, "0");
+
+    dom.ruta.cards.innerHTML = "";
+    dom.ruta.stadiums.innerHTML = "";
+    dom.ruta.cities.innerHTML = "";
+
+    dom.ruta.eyebrow.classList.remove("visible");
+
+    show(dom.ruta.gamesEmpty);
+    setText(
+        dom.ruta.gamesEmpty,
+        "Seleccione un equipo para consultar su itinerario."
+    );
+
+    hide(dom.ruta.citiesSection);
+
+    show(dom.ruta.stadiumsEmpty);
+    setText(
+        dom.ruta.stadiumsEmpty,
+        "Seleccione un equipo para consultar las ciudades y estadios."
+    );
+
+    hideStadiumAlert();
+
+    hide(dom.ruta.stats);
+
+    show(dom.ruta.summaryEmpty);
+    setText(
+        dom.ruta.summaryEmpty,
+        "Seleccione un equipo para generar el resumen."
+    );
+
+    [
+        dom.ruta.statGames,
+        dom.ruta.statCities,
+        dom.ruta.statHome,
+        dom.ruta.statAway,
+        dom.ruta.statStadiums,
+        dom.ruta.statCapacity
+    ].forEach(element => setText(element, "—"));
+}
+
+/* Se ejecuta cuando cambia el selector. */
+function selectTeam() {
+    const team =
+        getTeamById(dom.ruta.select.value);
+
+    if (!team) {
+        clearSelectedTeam();
+        return;
+    }
+
+    state.selectedTeam = team;
+
+    if (dom.ruta.flag) {
+        dom.ruta.flag.src = team.flag ?? "";
+        dom.ruta.flag.alt =
+            `Bandera de ${
+                team.name_en ??
+                `Equipo ${team.id}`
+            }`;
+    }
+
+    setText(
+        dom.ruta.name,
+        team.name_en ?? `Equipo ${team.id}`
+    );
+
+    show(dom.ruta.info, "flex");
+    updateSelectedTeamGames();
+}
+
+/* Filtra y ordena los partidos del equipo. */
+function updateSelectedTeamGames() {
+    if (!state.selectedTeam) return;
+
+    if (!state.loaded.games) {
+        show(dom.ruta.gamesEmpty);
+
+        setText(
+            dom.ruta.gamesEmpty,
+            "Los partidos todavía se están cargando."
+        );
+
+        return;
+    }
+
+    const teamId =
+        String(state.selectedTeam.id);
+
+    state.selectedGames = state.games
+        .filter(game =>
+            String(game.home_team_id) === teamId ||
+            String(game.away_team_id) === teamId
+        )
+        .sort((a, b) =>
+            parseLocalDate(a.local_date) -
+            parseLocalDate(b.local_date)
+        );
+
+    renderGames();
+    renderStadiumsSection();
+    renderSummarySection();
+}
+
+/* Genera una tarjeta de partido. */
 function createMatchCard(game) {
-  const selectedTeamId =
-    String(
-      state.selectedTeam.id
+    const selectedId =
+        String(state.selectedTeam.id);
+
+    const isHome =
+        String(game.home_team_id) === selectedId;
+
+    const opponentId = isHome
+        ? game.away_team_id
+        : game.home_team_id;
+
+    const opponent = getTeamData(
+        opponentId,
+        isHome
+            ? game.away_team_name_en
+            : game.home_team_name_en
     );
 
-  const isHome =
-    String(
-      game.home_team_id
-    ) === selectedTeamId;
+    const phase = getMatchPhase(game);
 
-  const opponentId =
-    isHome
-      ? game.away_team_id
-      : game.home_team_id;
+    const matchday =
+        phase.showMatchday && game.matchday
+            ? ` · Jornada ${game.matchday}`
+            : "";
 
-  const opponentTeam =
-    getTeamById(opponentId);
+    const stadium =
+        getStadiumById(game.stadium_id);
 
-  const opponentName =
-    opponentTeam?.name_en ??
-    (
-      isHome
-        ? game.away_team_name_en
-        : game.home_team_name_en
-    ) ??
-    `Equipo ${opponentId}`;
+    let stadiumName = "Pendiente de cargar";
 
-  const selectedTeamName =
-    state.selectedTeam.name_en ??
-    `Equipo ${state.selectedTeam.id}`;
+    let stadiumDetails =
+        `Identificador del estadio: ${
+            game.stadium_id ?? "No disponible"
+        }`;
 
-  const roleName =
-    isHome
-      ? "Local"
-      : "Visitante";
+    if (state.error.stadiums) {
+        stadiumName = "Estadio no disponible";
+        stadiumDetails =
+            "La información de estadios no pudo cargarse.";
+    } else if (
+        state.loaded.stadiums &&
+        stadium
+    ) {
+        stadiumName =
+            stadium.name_en ??
+            stadium.fifa_name ??
+            "Nombre no disponible";
 
-  const roleClass =
-    isHome
-      ? "role-home"
-      : "role-away";
+        stadiumDetails =
+            `${stadium.city_en ?? "Ciudad no disponible"}, ` +
+            `${stadium.country_en ?? "País no disponible"} · ` +
+            `Capacidad: ${
+                Number(
+                    stadium.capacity || 0
+                ).toLocaleString("es-CR")
+            }`;
+    } else if (state.loaded.stadiums) {
+        stadiumName = "Estadio no encontrado";
+        stadiumDetails =
+            `No existe información para el estadio ${game.stadium_id}.`;
+    }
 
-  const matchPhase =
-    getMatchPhase(game);
+    return `
+    <article class="match-card ${isHome ? "home" : "away"}">
+      <div class="card-stripe"></div>
 
-  const matchdayText =
-    matchPhase.showMatchday &&
-    game.matchday
-      ? ` · Jornada ${game.matchday}`
-      : "";
+      <div class="card-header">
+        <div class="card-matchup">
+          <p class="card-round">
+            ${phase.text}${matchday}
+          </p>
 
-  const stadium =
-    getStadiumById(
-      game.stadium_id
-    );
+          <h3 class="card-teams">
+            <span class="team-highlight">
+              ${
+                  state.selectedTeam.name_en ??
+                  `Equipo ${state.selectedTeam.id}`
+              }
+            </span>
+            vs ${opponent.name}
+          </h3>
+        </div>
 
-  let stadiumName =
-    "Pendiente de cargar";
+        <span class="card-role-badge ${
+            isHome ? "role-home" : "role-away"
+        }">
+          ${isHome ? "Local" : "Visitante"}
+        </span>
+      </div>
 
-  let stadiumLocation =
-    `Identificador del estadio: ${
-      game.stadium_id ??
-      "No disponible"
-    }`;
-
-  if (state.stadiumsError) {
-    stadiumName =
-      "Estadio no disponible";
-
-    stadiumLocation =
-      "La información de estadios no pudo cargarse.";
-  } else if (
-    state.stadiumsLoaded &&
-    stadium
-  ) {
-    stadiumName =
-      stadium.name_en ??
-      stadium.fifa_name ??
-      "Nombre no disponible";
-
-    const city =
-      stadium.city_en ??
-      "Ciudad no disponible";
-
-    const country =
-      stadium.country_en ??
-      "País no disponible";
-
-    const formattedCapacity =
-      Number(
-        stadium.capacity || 0
-      ).toLocaleString("es-CR");
-
-    stadiumLocation =
-      `${city}, ${country} · ` +
-      `Capacidad: ${formattedCapacity}`;
-  } else if (
-    state.stadiumsLoaded &&
-    !stadium
-  ) {
-    stadiumName =
-      "Estadio no encontrado";
-
-    stadiumLocation =
-      `No existe información para el estadio ${game.stadium_id}.`;
-  }
-
-  const card =
-    document.createElement(
-      "article"
-    );
-
-  card.className =
-    `match-card ${
-      isHome
-        ? "home"
-        : "away"
-    }`;
-
-  card.innerHTML = `
-    <div class="card-stripe"></div>
-
-    <div class="card-header">
-      <div class="card-matchup">
-        <p class="card-round">
-          ${matchPhase.text}${matchdayText}
-        </p>
-
-        <h3 class="card-teams">
-          <span class="team-highlight">
-            ${selectedTeamName}
+      <div class="card-body">
+        <div class="card-row">
+          <span
+            class="card-icon"
+            aria-hidden="true"
+          >
+            📅
           </span>
 
-          vs ${opponentName}
-        </h3>
-      </div>
+          <div class="card-row-content">
+            <p class="card-row-label">
+              Fecha y hora
+            </p>
 
-      <span class="card-role-badge ${roleClass}">
-        ${roleName}
-      </span>
-    </div>
+            <p class="card-row-value">
+              ${formatLocalDate(game.local_date)}
+            </p>
+          </div>
+        </div>
 
-    <div class="card-body">
+        <div class="card-row">
+          <span
+            class="card-icon"
+            aria-hidden="true"
+          >
+            🏟️
+          </span>
 
-      <div class="card-row">
-        <span
-          class="card-icon"
-          aria-hidden="true"
-        >
-          📅
-        </span>
+          <div class="card-row-content">
+            <p class="card-row-label">
+              Estadio
+            </p>
 
-        <div class="card-row-content">
-          <p class="card-row-label">
-            Fecha y hora
-          </p>
+            <p class="card-row-value">
+              ${stadiumName}
+            </p>
 
-          <p class="card-row-value">
-            ${formatLocalDate(game.local_date)}
-          </p>
+            <p class="card-row-sub">
+              ${stadiumDetails}
+            </p>
+          </div>
         </div>
       </div>
+    </article>
+  `;
+}
 
-      <div class="card-row">
+/* Muestra los partidos del equipo seleccionado. */
+function renderGames() {
+    dom.ruta.cards.innerHTML = "";
+
+    setText(
+        dom.ruta.eyebrowCount,
+        state.selectedGames.length
+    );
+
+    if (!state.selectedGames.length) {
+        dom.ruta.eyebrow.classList.remove(
+            "visible"
+        );
+
+        show(dom.ruta.gamesEmpty);
+
+        setText(
+            dom.ruta.gamesEmpty,
+            "No se encontraron partidos para el equipo seleccionado."
+        );
+
+        return;
+    }
+
+    hide(dom.ruta.gamesEmpty);
+
+    dom.ruta.eyebrow.classList.add(
+        "visible"
+    );
+
+    dom.ruta.cards.innerHTML =
+        state.selectedGames
+            .map(createMatchCard)
+            .join("");
+}
+
+/* Genera una tarjeta de estadio. */
+function createStadiumCard(
+    stadium,
+    gamesCount
+) {
+    return `
+    <article class="stadium-card">
+      <div class="stadium-card-header">
         <span
-          class="card-icon"
+          class="stadium-card-icon"
           aria-hidden="true"
         >
           🏟️
         </span>
 
-        <div class="card-row-content">
-          <p class="card-row-label">
-            Estadio
-          </p>
-
-          <p class="card-row-value">
-            ${stadiumName}
-          </p>
-
-          <p class="card-row-sub">
-            ${stadiumLocation}
-          </p>
-        </div>
-      </div>
-
-    </div>
-  `;
-
-  return card;
-}
-
-/* ──────────────────────────────────────────────────────
-   MOSTRAR PARTIDOS
-────────────────────────────────────────────────────── */
-function renderGames() {
-  cardsGrid.innerHTML = "";
-
-  eyebrowCount.textContent =
-    String(
-      state.selectedGames.length
-    );
-
-  if (
-    state.selectedGames.length === 0
-  ) {
-    sectionEyebrow.classList.remove(
-      "visible"
-    );
-
-    gamesEmptyState.style.display =
-      "block";
-
-    gamesEmptyState.textContent =
-      "No se encontraron partidos para el equipo seleccionado.";
-
-    return;
-  }
-
-  gamesEmptyState.style.display =
-    "none";
-
-  sectionEyebrow.classList.add(
-    "visible"
-  );
-
-  state.selectedGames.forEach(
-    game => {
-      cardsGrid.appendChild(
-        createMatchCard(game)
-      );
-    }
-  );
-}
-
-/* ──────────────────────────────────────────────────────
-   CREAR TARJETA DE ESTADIO
-────────────────────────────────────────────────────── */
-function createStadiumCard(
-  stadium,
-  gamesCount
-) {
-  const stadiumName =
-    stadium.name_en ??
-    stadium.fifa_name ??
-    "Estadio sin nombre";
-
-  const city =
-    stadium.city_en ??
-    "Ciudad no disponible";
-
-  const country =
-    stadium.country_en ??
-    "País no disponible";
-
-  const capacity =
-    Number(
-      stadium.capacity || 0
-    ).toLocaleString("es-CR");
-
-  const card =
-    document.createElement(
-      "article"
-    );
-
-  card.className =
-    "stadium-card";
-
-  card.innerHTML = `
-    <div class="stadium-card-header">
-      <span
-        class="stadium-card-icon"
-        aria-hidden="true"
-      >
-        🏟️
-      </span>
-
-      <div>
-        <h3>
-          ${stadiumName}
-        </h3>
-
-        <p>
-          ${city}, ${country}
-        </p>
-      </div>
-    </div>
-
-    <div class="stadium-card-data">
-
-      <div>
-        <span class="stadium-data-label">
-          Capacidad
-        </span>
-
-        <strong>
-          ${capacity}
-        </strong>
-      </div>
-
-      <div>
-        <span class="stadium-data-label">
-          Partidos del equipo
-        </span>
-
-        <strong>
-          ${gamesCount}
-          ${
-            gamesCount === 1
-              ? "partido"
-              : "partidos"
-          }
-        </strong>
-      </div>
-
-    </div>
-  `;
-
-  return card;
-}
-
-/* ──────────────────────────────────────────────────────
-   MOSTRAR CIUDADES Y ESTADIOS
-────────────────────────────────────────────────────── */
-function renderStadiumsSection() {
-  stadiumsGrid.innerHTML = "";
-  citiesChips.innerHTML = "";
-
-  citiesSection.style.display =
-    "none";
-
-  hideStadiumAlert();
-
-  if (!state.selectedTeam) {
-    stadiumsEmptyState.style.display =
-      "block";
-
-    stadiumsEmptyState.textContent =
-      "Seleccione un equipo para consultar las ciudades y estadios de su itinerario.";
-
-    return;
-  }
-
-  if (!state.gamesLoaded) {
-    stadiumsEmptyState.style.display =
-      "block";
-
-    stadiumsEmptyState.textContent =
-      "Los partidos todavía se están cargando.";
-
-    return;
-  }
-
-  if (state.stadiumsError) {
-    stadiumsEmptyState.style.display =
-      "block";
-
-    stadiumsEmptyState.textContent =
-      "Los partidos están disponibles, pero no fue posible cargar los estadios.";
-
-    showStadiumAlert(
-      "La petición a /get/stadiums falló. " +
-      "Los partidos permanecen disponibles y puede reintentar solo los estadios."
-    );
-
-    return;
-  }
-
-  if (!state.stadiumsLoaded) {
-    stadiumsEmptyState.style.display =
-      "block";
-
-    stadiumsEmptyState.textContent =
-      "La información de estadios todavía se está cargando.";
-
-    return;
-  }
-
-  const stadiumGameCounts =
-    new Map();
-
-  state.selectedGames.forEach(
-    game => {
-      const stadiumId =
-        String(
-          game.stadium_id
-        );
-
-      const currentCount =
-        stadiumGameCounts.get(
-          stadiumId
-        ) ?? 0;
-
-      stadiumGameCounts.set(
-        stadiumId,
-        currentCount + 1
-      );
-    }
-  );
-
-  const selectedStadiums = [];
-
-  stadiumGameCounts.forEach(
-    (
-      gamesCount,
-      stadiumId
-    ) => {
-      const stadium =
-        getStadiumById(
-          stadiumId
-        );
-
-      if (stadium) {
-        selectedStadiums.push({
-          stadium,
-          gamesCount
-        });
-      }
-    }
-  );
-
-  selectedStadiums.sort(
-    (itemA, itemB) => {
-      return (
-        itemA.stadium.city_en ??
-        ""
-      ).localeCompare(
-        itemB.stadium.city_en ??
-        ""
-      );
-    }
-  );
-
-  if (
-    selectedStadiums.length === 0
-  ) {
-    stadiumsEmptyState.style.display =
-      "block";
-
-    stadiumsEmptyState.textContent =
-      "No se encontraron estadios para el equipo seleccionado.";
-
-    return;
-  }
-
-  stadiumsEmptyState.style.display =
-    "none";
-
-  citiesSection.style.display =
-    "block";
-
-  const uniqueCities = [
-    ...new Set(
-      selectedStadiums.map(
-        item => {
-          return (
-            item.stadium.city_en ??
-            "Ciudad no disponible"
-          );
-        }
-      )
-    )
-  ];
-
-  uniqueCities.forEach(
-    city => {
-      const chip =
-        document.createElement(
-          "span"
-        );
-
-      chip.className =
-        "city-chip";
-
-      chip.textContent =
-        city;
-
-      citiesChips.appendChild(
-        chip
-      );
-    }
-  );
-
-  selectedStadiums.forEach(
-    item => {
-      stadiumsGrid.appendChild(
-        createStadiumCard(
-          item.stadium,
-          item.gamesCount
-        )
-      );
-    }
-  );
-}
-
-/* ──────────────────────────────────────────────────────
-   MOSTRAR RESUMEN DEL RECORRIDO
-────────────────────────────────────────────────────── */
-function renderSummarySection() {
-  if (!state.selectedTeam) {
-    statsBar.style.display =
-      "none";
-
-    summaryEmptyState.style.display =
-      "block";
-
-    summaryEmptyState.textContent =
-      "Seleccione un equipo para generar el resumen.";
-
-    return;
-  }
-
-  if (!state.gamesLoaded) {
-    statsBar.style.display =
-      "none";
-
-    summaryEmptyState.style.display =
-      "block";
-
-    summaryEmptyState.textContent =
-      "Los partidos todavía se están cargando.";
-
-    return;
-  }
-
-  const selectedTeamId =
-    String(
-      state.selectedTeam.id
-    );
-
-  const homeGames =
-    state.selectedGames.filter(
-      game => {
-        return (
-          String(
-            game.home_team_id
-          ) === selectedTeamId
-        );
-      }
-    ).length;
-
-  const awayGames =
-    state.selectedGames.filter(
-      game => {
-        return (
-          String(
-            game.away_team_id
-          ) === selectedTeamId
-        );
-      }
-    ).length;
-
-  statGames.textContent =
-    String(
-      state.selectedGames.length
-    );
-
-  statHome.textContent =
-    String(homeGames);
-
-  statAway.textContent =
-    String(awayGames);
-
-  if (
-    !state.stadiumsLoaded ||
-    state.stadiumsError
-  ) {
-    statCities.textContent = "—";
-    statStadiums.textContent = "—";
-    statCapacity.textContent = "—";
-
-    statsBar.style.display =
-      "grid";
-
-    summaryEmptyState.style.display =
-      "none";
-
-    return;
-  }
-
-  const uniqueStadiumsMap =
-    new Map();
-
-  state.selectedGames.forEach(
-    game => {
-      const stadium =
-        getStadiumById(
-          game.stadium_id
-        );
-
-      if (stadium) {
-        uniqueStadiumsMap.set(
-          String(stadium.id),
-          stadium
-        );
-      }
-    }
-  );
-
-  const uniqueStadiums =
-    [
-      ...uniqueStadiumsMap.values()
-    ];
-
-  const uniqueCities =
-    new Set(
-      uniqueStadiums.map(
-        stadium => {
-          return (
-            stadium.city_en ??
-            "Ciudad no disponible"
-          );
-        }
-      )
-    );
-
-  const totalCapacity =
-    uniqueStadiums.reduce(
-      (total, stadium) => {
-        return (
-          total +
-          Number(
-            stadium.capacity || 0
-          )
-        );
-      },
-      0
-    );
-
-  const averageCapacity =
-    uniqueStadiums.length > 0
-      ? Math.round(
-          totalCapacity /
-          uniqueStadiums.length
-        )
-      : 0;
-
-  statCities.textContent =
-    String(
-      uniqueCities.size
-    );
-
-  statStadiums.textContent =
-    String(
-      uniqueStadiums.length
-    );
-
-  statCapacity.textContent =
-    averageCapacity.toLocaleString(
-      "es-CR"
-    );
-
-  statsBar.style.display =
-    "grid";
-
-  summaryEmptyState.style.display =
-    "none";
-}
-
-/* ═══════════════════════════════════════════════════════
-   PANTALLA 2.3: EL MURO
-═══════════════════════════════════════════════════════ */
-
-/*
- * Extrae los 48 identificadores desde los 12 grupos.
- */
-function getGroupTeamIds() {
-  const teamIds = [];
-
-  state.groups.forEach(group => {
-    if (!Array.isArray(group.teams)) {
-      return;
-    }
-
-    group.teams.forEach(groupTeam => {
-      const teamId =
-        String(groupTeam.team_id ?? "").trim();
-
-      if (
-        teamId &&
-        teamId !== "0" &&
-        !teamIds.includes(teamId)
-      ) {
-        teamIds.push(teamId);
-      }
-    });
-  });
-
-  return teamIds;
-}
-
-/*
- * Calcula los goles recibidos por cada equipo
- * utilizando todos los partidos terminados.
- */
-function calculateMuroRanking() {
-  const teamIds =
-    getGroupTeamIds();
-
-  const defensiveMap =
-    new Map();
-
-  teamIds.forEach(teamId => {
-    defensiveMap.set(teamId, {
-      teamId,
-      goalsAgainst: 0,
-      gamesPlayed: 0
-    });
-  });
-
-  state.games
-    .filter(game => isFinishedGame(game))
-    .forEach(game => {
-      const homeTeamId =
-        String(game.home_team_id ?? "");
-
-      const awayTeamId =
-        String(game.away_team_id ?? "");
-
-      const homeScore =
-        parseGameScore(game.home_score);
-
-      const awayScore =
-        parseGameScore(game.away_score);
-
-      if (
-        homeScore === null ||
-        awayScore === null
-      ) {
-        return;
-      }
-
-      const homeRecord =
-        defensiveMap.get(homeTeamId);
-
-      if (homeRecord) {
-        homeRecord.goalsAgainst +=
-          awayScore;
-
-        homeRecord.gamesPlayed += 1;
-      }
-
-      const awayRecord =
-        defensiveMap.get(awayTeamId);
-
-      if (awayRecord) {
-        awayRecord.goalsAgainst +=
-          homeScore;
-
-        awayRecord.gamesPlayed += 1;
-      }
-    });
-
-  state.muroRanking =
-    [...defensiveMap.values()]
-      .sort((teamA, teamB) => {
-        const goalsOrder =
-          teamA.goalsAgainst -
-          teamB.goalsAgainst;
-
-        if (goalsOrder !== 0) {
-          return goalsOrder;
-        }
-
-        /*
-         * Desempate determinista mediante ID.
-         * El criterio principal sigue siendo goles recibidos.
-         */
-        return (
-          Number(teamA.teamId) -
-          Number(teamB.teamId)
-        );
-      })
-      .slice(0, 5);
-
-  return state.muroRanking;
-}
-
-/*
- * Busca el próximo partido no terminado de un equipo.
- */
-function findNextGameForTeam(teamId) {
-  const normalizedTeamId =
-    String(teamId);
-
-  const upcomingGames =
-    state.games
-      .filter(game => {
-        if (isFinishedGame(game)) {
-          return false;
-        }
-
-        const homeTeamId =
-          String(game.home_team_id ?? "");
-
-        const awayTeamId =
-          String(game.away_team_id ?? "");
-
-        return (
-          homeTeamId === normalizedTeamId ||
-          awayTeamId === normalizedTeamId
-        );
-      })
-      .sort((gameA, gameB) => {
-        return (
-          parseLocalDate(gameA.local_date) -
-          parseLocalDate(gameB.local_date)
-        );
-      });
-
-  return upcomingGames[0] ?? null;
-}
-
-/*
- * Determina el rival del siguiente partido.
- * Se ejecuta de forma independiente para cada equipo.
- */
-function getNextOpponentForTeam(teamId) {
-  try {
-    const nextGame =
-      findNextGameForTeam(teamId);
-
-    if (!nextGame) {
-      return {
-        available: true,
-        name: "Sin próximo partido",
-        flag: "",
-        date: ""
-      };
-    }
-
-    const normalizedTeamId =
-      String(teamId);
-
-    const isHome =
-      String(nextGame.home_team_id) ===
-      normalizedTeamId;
-
-    const opponentId =
-      isHome
-        ? String(nextGame.away_team_id ?? "")
-        : String(nextGame.home_team_id ?? "");
-
-    /*
-     * En algunas llaves eliminatorias el rival
-     * todavía puede aparecer como un texto pendiente.
-     */
-    if (
-      !opponentId ||
-      opponentId === "0"
-    ) {
-      const opponentLabel =
-        isHome
-          ? nextGame.away_team_label
-          : nextGame.home_team_label;
-
-      if (!opponentLabel) {
-        throw new Error(
-          `No existe rival para el equipo ${teamId}`
-        );
-      }
-
-      return {
-        available: true,
-        name: opponentLabel,
-        flag: "",
-        date: formatLocalDate(
-          nextGame.local_date
-        )
-      };
-    }
-
-    const opponentTeam =
-      getTeamById(opponentId);
-
-    const fallbackName =
-      isHome
-        ? nextGame.away_team_name_en
-        : nextGame.home_team_name_en;
-
-    const opponentName =
-      opponentTeam?.name_en ??
-      fallbackName;
-
-    if (!opponentName) {
-      throw new Error(
-        `No fue posible resolver el rival ${opponentId}`
-      );
-    }
-
-    return {
-      available: true,
-      name: opponentName,
-      flag: opponentTeam?.flag ?? "",
-      date: formatLocalDate(
-        nextGame.local_date
-      )
-    };
-  } catch (error) {
-    console.error(
-      `Error al buscar el rival del equipo ${teamId}:`,
-      error
-    );
-
-    /*
-     * El error solo afecta este registro.
-     */
-    return {
-      available: false,
-      name: "Próximo rival no disponible",
-      flag: "",
-      date: ""
-    };
-  }
-}
-
-/*
- * Genera la bandera o un respaldo visual.
- */
-function createMuroFlagMarkup(
-  flag,
-  teamName
-) {
-  if (flag) {
-    return `
-      <img
-        src="${flag}"
-        alt="Bandera de ${teamName}"
-        loading="lazy"
-      >
-    `;
-  }
-
-  return `
-    <span
-      class="muro-flag-placeholder"
-      aria-label="Bandera no disponible"
-    >
-      ID
-    </span>
-  `;
-}
-
-/*
- * Crea una tarjeta del ranking.
- */
-function createMuroCard(
-  rankingItem,
-  position
-) {
-  const team =
-    getTeamById(
-      rankingItem.teamId
-    );
-
-  const teamName =
-    team?.name_en ??
-    `Equipo ID ${rankingItem.teamId}`;
-
-  const teamFlag =
-    team?.flag ?? "";
-
-  /*
-   * Esta búsqueda está aislada por equipo.
-   * Un error no evita generar las otras tarjetas.
-   */
-  const nextOpponent =
-    getNextOpponentForTeam(
-      rankingItem.teamId
-    );
-
-  const opponentFlagMarkup =
-    nextOpponent.flag
-      ? `
-          <img
-            src="${nextOpponent.flag}"
-            alt="Bandera de ${nextOpponent.name}"
-            loading="lazy"
-          >
-        `
-      : `
-          <span
-            class="muro-rival-placeholder"
-            aria-hidden="true"
-          >
-            VS
-          </span>
-        `;
-
-  const card =
-    document.createElement("article");
-
-  card.className = "muro-card";
-
-  if (position === 1) {
-    card.classList.add("first-place");
-  }
-
-  card.innerHTML = `
-    <div class="muro-position">
-      <span>
-        ${position}
-      </span>
-    </div>
-
-    <div class="muro-team-main">
-
-      <div class="muro-team-flag">
-        ${createMuroFlagMarkup(
-          teamFlag,
-          teamName
-        )}
-      </div>
-
-      <div class="muro-team-info">
-        <span>
-          Equipo
-        </span>
-
-        <h3>
-          ${teamName}
-        </h3>
-      </div>
-
-    </div>
-
-    <div class="muro-stat">
-
-      <span>
-        Goles recibidos
-      </span>
-
-      <strong>
-        ${rankingItem.goalsAgainst}
-      </strong>
-
-      <small>
-        ${rankingItem.gamesPlayed}
-        ${
-          rankingItem.gamesPlayed === 1
-            ? "partido"
-            : "partidos"
-        }
-      </small>
-
-    </div>
-
-    <div class="muro-next-game">
-
-      <span class="muro-next-label">
-        Próximo rival
-      </span>
-
-      <div class="muro-rival">
-
-        <div class="muro-rival-flag">
-          ${opponentFlagMarkup}
-        </div>
-
         <div>
-          <strong class="${
-            nextOpponent.available
-              ? ""
-              : "muro-rival-error"
-          }">
-            ${nextOpponent.name}
-          </strong>
+          <h3>
+            ${
+                stadium.name_en ??
+                stadium.fifa_name ??
+                "Estadio sin nombre"
+            }
+          </h3>
 
-          ${
-            nextOpponent.date
-              ? `
-                  <small>
-                    ${nextOpponent.date}
-                  </small>
-                `
-              : ""
-          }
+          <p>
+            ${stadium.city_en ?? "Ciudad no disponible"},
+            ${stadium.country_en ?? "País no disponible"}
+          </p>
         </div>
-
       </div>
 
-    </div>
-  `;
-
-  return card;
-}
-
-/*
- * Renderiza el ranking defensivo.
- */
-function renderMuro() {
-  if (
-    !muroGrid ||
-    !muroEmptyState
-  ) {
-    return;
-  }
-
-  muroGrid.innerHTML = "";
-
-  muroCount.textContent = "0";
-  muroTotal.textContent = "0";
-
-  muroEyebrow.classList.remove(
-    "visible"
-  );
-
-  muroStatus.hidden = true;
-
-  if (!state.groupsLoaded) {
-    muroEmptyState.style.display =
-      "block";
-
-    muroEmptyState.textContent =
-      state.groupsError
-        ? "No fue posible cargar los grupos."
-        : "Cargando los grupos del Mundial...";
-
-    return;
-  }
-
-  if (!state.gamesLoaded) {
-    muroEmptyState.style.display =
-      "block";
-
-    muroEmptyState.textContent =
-      state.gamesError
-        ? "No fue posible cargar los partidos."
-        : "Cargando los partidos del Mundial...";
-
-    return;
-  }
-
-  const ranking =
-    calculateMuroRanking();
-
-  if (!state.teamsLoaded) {
-    muroStatus.hidden = false;
-
-    muroStatusMessage.textContent =
-      "El ranking está disponible, pero los nombres y banderas de los equipos todavía no pudieron cargarse.";
-  }
-
-  muroTotal.textContent =
-    String(ranking.length);
-
-  muroCount.textContent =
-    String(ranking.length);
-
-  if (ranking.length === 0) {
-    muroEmptyState.style.display =
-      "block";
-
-    muroEmptyState.textContent =
-      "No fue posible construir el ranking defensivo.";
-
-    return;
-  }
-
-  muroEmptyState.style.display =
-    "none";
-
-  muroEyebrow.classList.add(
-    "visible"
-  );
-
-  ranking.forEach(
-    (rankingItem, index) => {
-      muroGrid.appendChild(
-        createMuroCard(
-          rankingItem,
-          index + 1
-        )
-      );
-    }
-  );
-}
-
-/* ═══════════════════════════════════════════════════════
-   PANTALLA 2.4: ANALÍTICA DE ESTADIOS
-═══════════════════════════════════════════════════════ */
-
-/*
- * Cuenta la cantidad de partidos asignados
- * a cada estadio.
- */
-function getAnaliticaGameCounts() {
-  const gameCounts = new Map();
-
-  state.analiticaGames.forEach(game => {
-    const stadiumId =
-      String(game.stadium_id ?? "").trim();
-
-    if (!stadiumId) {
-      return;
-    }
-
-    const currentCount =
-      gameCounts.get(stadiumId) ?? 0;
-
-    gameCounts.set(
-      stadiumId,
-      currentCount + 1
-    );
-  });
-
-  return gameCounts;
-}
-
-/*
- * Construye la información derivada
- * de los 16 estadios.
- */
-function calculateAnaliticaRanking() {
-  const gameCounts =
-    getAnaliticaGameCounts();
-
-  state.analiticaRanking =
-    state.stadiums
-      .map(stadium => {
-        const stadiumId =
-          String(stadium.id);
-
-        const capacity =
-          Number(stadium.capacity || 0);
-
-        const gamesCount =
-          state.analiticaGamesLoaded
-            ? gameCounts.get(stadiumId) ?? 0
-            : null;
-
-        const attendancePotential =
-          gamesCount === null
-            ? null
-            : capacity * gamesCount;
-
-        return {
-          stadium,
-          capacity,
-          gamesCount,
-          attendancePotential
-        };
-      })
-      .sort((itemA, itemB) => {
-        if (
-          itemA.attendancePotential === null ||
-          itemB.attendancePotential === null
-        ) {
-          return (
-            itemB.capacity -
-            itemA.capacity
-          );
-        }
-
-        const potentialOrder =
-          itemB.attendancePotential -
-          itemA.attendancePotential;
-
-        if (potentialOrder !== 0) {
-          return potentialOrder;
-        }
-
-        return (
-          itemB.capacity -
-          itemA.capacity
-        );
-      });
-
-  return state.analiticaRanking;
-}
-
-/*
- * Crea una fila de la gráfica.
- */
-function createAnaliticaChartRow(
-  item,
-  maxCapacity,
-  maxGames
-) {
-  const stadiumName =
-    item.stadium.name_en ??
-    item.stadium.fifa_name ??
-    "Estadio sin nombre";
-
-  const city =
-    item.stadium.city_en ??
-    "Ciudad no disponible";
-
-  const capacityPercent =
-    maxCapacity > 0
-      ? Math.max(
-          2,
-          Math.round(
-            item.capacity /
-            maxCapacity *
-            100
-          )
-        )
-      : 0;
-
-  const gamesPercent =
-    item.gamesCount !== null &&
-    maxGames > 0
-      ? Math.max(
-          2,
-          Math.round(
-            item.gamesCount /
-            maxGames *
-            100
-          )
-        )
-      : 0;
-
-  const gamesLabel =
-    item.gamesCount === null
-      ? "Esperando datos"
-      : `${item.gamesCount} partidos`;
-
-  const row =
-    document.createElement("article");
-
-  row.className =
-    "analitica-chart-row";
-
-  row.innerHTML = `
-    <div class="analitica-stadium-name">
-      <strong>
-        ${stadiumName}
-      </strong>
-
-      <span>
-        ${city}
-      </span>
-    </div>
-
-    <div class="analitica-bars">
-
-      <div class="analitica-bar-group">
-        <div class="analitica-bar-header">
-          <span>
+      <div class="stadium-card-data">
+        <div>
+          <span class="stadium-data-label">
             Capacidad
           </span>
 
           <strong>
-            ${item.capacity.toLocaleString("es-CR")}
+            ${
+                Number(
+                    stadium.capacity || 0
+                ).toLocaleString("es-CR")
+            }
           </strong>
         </div>
 
-        <div class="analitica-bar-track">
-          <div
-            class="analitica-bar analitica-capacity-bar"
-            style="width: ${capacityPercent}%"
-          ></div>
-        </div>
-      </div>
-
-      <div class="analitica-bar-group">
-        <div class="analitica-bar-header">
-          <span>
-            Partidos
+        <div>
+          <span class="stadium-data-label">
+            Partidos del equipo
           </span>
 
           <strong>
-            ${gamesLabel}
+            ${gamesCount}
+            ${gamesCount === 1 ? "partido" : "partidos"}
+          </strong>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+/* Muestra las ciudades y estadios del recorrido. */
+function renderStadiumsSection() {
+    dom.ruta.stadiums.innerHTML = "";
+    dom.ruta.cities.innerHTML = "";
+
+    hide(dom.ruta.citiesSection);
+    hideStadiumAlert();
+
+    if (!state.selectedTeam) return;
+
+    if (!state.loaded.games) {
+        show(dom.ruta.stadiumsEmpty);
+
+        setText(
+            dom.ruta.stadiumsEmpty,
+            "Los partidos todavía se están cargando."
+        );
+
+        return;
+    }
+
+    if (state.error.stadiums) {
+        show(dom.ruta.stadiumsEmpty);
+
+        setText(
+            dom.ruta.stadiumsEmpty,
+            "Los partidos están disponibles, pero no fue posible cargar los estadios."
+        );
+
+        showStadiumAlert(
+            "La petición a /get/stadiums falló. " +
+            "Los partidos permanecen disponibles y puede reintentar solo los estadios."
+        );
+
+        return;
+    }
+
+    if (!state.loaded.stadiums) {
+        show(dom.ruta.stadiumsEmpty);
+
+        setText(
+            dom.ruta.stadiumsEmpty,
+            "La información de estadios todavía se está cargando."
+        );
+
+        return;
+    }
+
+    const counts = new Map();
+
+    state.selectedGames.forEach(game => {
+        const id = String(game.stadium_id);
+
+        counts.set(
+            id,
+            (counts.get(id) ?? 0) + 1
+        );
+    });
+
+    const items = [...counts.entries()]
+        .map(([id, gamesCount]) => ({
+            stadium: getStadiumById(id),
+            gamesCount
+        }))
+        .filter(item => item.stadium)
+        .sort((a, b) =>
+            (a.stadium.city_en ?? "").localeCompare(
+                b.stadium.city_en ?? ""
+            )
+        );
+
+    if (!items.length) {
+        show(dom.ruta.stadiumsEmpty);
+
+        setText(
+            dom.ruta.stadiumsEmpty,
+            "No se encontraron estadios para el equipo seleccionado."
+        );
+
+        return;
+    }
+
+    hide(dom.ruta.stadiumsEmpty);
+    show(dom.ruta.citiesSection);
+
+    const cities = [
+        ...new Set(
+            items.map(item =>
+                item.stadium.city_en ??
+                "Ciudad no disponible"
+            )
+        )
+    ];
+
+    dom.ruta.cities.innerHTML =
+        cities
+            .map(city => `
+      <span class="city-chip">
+        ${city}
+      </span>
+    `)
+            .join("");
+
+    dom.ruta.stadiums.innerHTML =
+        items
+            .map(item =>
+                createStadiumCard(
+                    item.stadium,
+                    item.gamesCount
+                )
+            )
+            .join("");
+}
+
+/* Calcula y muestra el resumen del recorrido. */
+function renderSummarySection() {
+    if (
+        !state.selectedTeam ||
+        !state.loaded.games
+    ) {
+        return;
+    }
+
+    const teamId =
+        String(state.selectedTeam.id);
+
+    const homeGames =
+        state.selectedGames
+            .filter(game =>
+                String(game.home_team_id) === teamId
+            )
+            .length;
+
+    const awayGames =
+        state.selectedGames.length -
+        homeGames;
+
+    setText(
+        dom.ruta.statGames,
+        state.selectedGames.length
+    );
+
+    setText(
+        dom.ruta.statHome,
+        homeGames
+    );
+
+    setText(
+        dom.ruta.statAway,
+        awayGames
+    );
+
+    if (
+        !state.loaded.stadiums ||
+        state.error.stadiums
+    ) {
+        [
+            dom.ruta.statCities,
+            dom.ruta.statStadiums,
+            dom.ruta.statCapacity
+        ].forEach(element =>
+            setText(element, "—")
+        );
+    } else {
+        const stadiumMap = new Map();
+
+        state.selectedGames.forEach(game => {
+            const stadium =
+                getStadiumById(game.stadium_id);
+
+            if (stadium) {
+                stadiumMap.set(
+                    String(stadium.id),
+                    stadium
+                );
+            }
+        });
+
+        const stadiums = [
+            ...stadiumMap.values()
+        ];
+
+        const cities = new Set(
+            stadiums.map(stadium =>
+                stadium.city_en ??
+                "Ciudad no disponible"
+            )
+        );
+
+        const averageCapacity =
+            stadiums.length
+                ? Math.round(
+                    stadiums.reduce(
+                        (total, stadium) =>
+                            total +
+                            Number(
+                                stadium.capacity || 0
+                            ),
+                        0
+                    ) / stadiums.length
+                )
+                : 0;
+
+        setText(
+            dom.ruta.statCities,
+            cities.size
+        );
+
+        setText(
+            dom.ruta.statStadiums,
+            stadiums.length
+        );
+
+        setText(
+            dom.ruta.statCapacity,
+            averageCapacity.toLocaleString(
+                "es-CR"
+            )
+        );
+    }
+
+    show(dom.ruta.stats, "grid");
+    hide(dom.ruta.summaryEmpty);
+}
+
+/* =====================================================
+   2.2 RASTREADOR DE GOLEADAS
+===================================================== */
+
+/* Partidos terminados con diferencia de 3 o más goles. */
+function calculateGoleadas() {
+    return state.games
+        .filter(isFinishedGame)
+        .map(game => {
+            const homeScore =
+                parseScore(game.home_score);
+
+            const awayScore =
+                parseScore(game.away_score);
+
+            if (
+                homeScore === null ||
+                awayScore === null
+            ) {
+                return null;
+            }
+
+            return {
+                game,
+                homeScore,
+                awayScore,
+                difference:
+                    Math.abs(
+                        homeScore - awayScore
+                    )
+            };
+        })
+        .filter(result =>
+            result &&
+            result.difference >= 3
+        )
+        .sort((a, b) =>
+            b.difference -
+            a.difference ||
+            Number(a.game.id || 0) -
+            Number(b.game.id || 0)
+        );
+}
+
+/* Genera una tarjeta de goleada. */
+function createGoleadaCard(result) {
+    const {
+        game,
+        homeScore,
+        awayScore,
+        difference
+    } = result;
+
+    const homeTeam = getTeamData(
+        game.home_team_id,
+        game.home_team_name_en,
+        true
+    );
+
+    const awayTeam = getTeamData(
+        game.away_team_id,
+        game.away_team_name_en,
+        true
+    );
+
+    const phase = getMatchPhase(game);
+
+    return `
+    <article class="goleada-card">
+      <div class="goleada-card-top">
+        <div>
+          <span class="goleada-phase">
+            ${phase.text}
+          </span>
+
+          <p class="goleada-date">
+            ${formatLocalDate(game.local_date)}
+          </p>
+        </div>
+
+        <span class="goleada-difference">
+          Diferencia: ${difference}
+        </span>
+      </div>
+
+      <div class="goleada-match">
+        <div class="goleada-team ${
+            homeScore > awayScore
+                ? "winner"
+                : ""
+        }">
+          <div class="goleada-flag">
+            ${
+                flagMarkup(
+                    homeTeam,
+                    "goleada-flag-placeholder"
+                )
+            }
+          </div>
+
+          <span class="goleada-team-role">
+            Local
+          </span>
+
+          <strong>
+            ${homeTeam.name}
           </strong>
         </div>
 
-        <div class="analitica-bar-track">
-          <div
-            class="analitica-bar analitica-games-bar"
-            style="width: ${gamesPercent}%"
-          ></div>
+        <div class="goleada-score">
+          <span>${homeScore}</span>
+          <small>—</small>
+          <span>${awayScore}</span>
+        </div>
+
+        <div class="goleada-team ${
+            awayScore > homeScore
+                ? "winner"
+                : ""
+        }">
+          <div class="goleada-flag">
+            ${
+                flagMarkup(
+                    awayTeam,
+                    "goleada-flag-placeholder"
+                )
+            }
+          </div>
+
+          <span class="goleada-team-role">
+            Visitante
+          </span>
+
+          <strong>
+            ${awayTeam.name}
+          </strong>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+/* Renderiza todas las goleadas. */
+function renderGoleadas() {
+    if (!dom.goleadas.grid) return;
+
+    dom.goleadas.grid.innerHTML = "";
+
+    setText(dom.goleadas.total, "0");
+    setText(dom.goleadas.count, "0");
+
+    dom.goleadas.eyebrow.classList.remove(
+        "visible"
+    );
+
+    if (!state.loaded.games) {
+        show(dom.goleadas.empty);
+
+        setText(
+            dom.goleadas.empty,
+            state.error.games
+                ? "No fue posible cargar los partidos."
+                : "Cargando los partidos terminados..."
+        );
+
+        return;
+    }
+
+    const results = calculateGoleadas();
+
+    dom.goleadas.warning.hidden =
+        state.loaded.teams;
+
+    if (!state.loaded.teams) {
+        setText(
+            dom.goleadas.warningMessage,
+            "Las goleadas permanecen visibles usando IDs. " +
+            "/get/teams se reintentará automáticamente."
+        );
+    }
+
+    setText(
+        dom.goleadas.total,
+        results.length
+    );
+
+    setText(
+        dom.goleadas.count,
+        results.length
+    );
+
+    if (!results.length) {
+        show(dom.goleadas.empty);
+
+        setText(
+            dom.goleadas.empty,
+            "No se encontraron partidos terminados con diferencia de tres o más goles."
+        );
+
+        return;
+    }
+
+    hide(dom.goleadas.empty);
+
+    dom.goleadas.eyebrow.classList.add(
+        "visible"
+    );
+
+    dom.goleadas.grid.innerHTML =
+        results
+            .map(createGoleadaCard)
+            .join("");
+}
+
+/* =====================================================
+   2.3 EL MURO
+===================================================== */
+
+/* Obtiene los IDs de los equipos presentes en los grupos. */
+function getGroupTeamIds() {
+    const ids = new Set();
+
+    state.groups.forEach(group => {
+        (group.teams ?? []).forEach(item => {
+            const id =
+                String(item.team_id ?? "").trim();
+
+            if (id && id !== "0") {
+                ids.add(id);
+            }
+        });
+    });
+
+    return [...ids];
+}
+
+/* Calcula los cinco equipos con menos goles recibidos. */
+function calculateMuroRanking() {
+    const records = new Map(
+        getGroupTeamIds().map(id => [
+            id,
+            {
+                teamId: id,
+                goalsAgainst: 0,
+                gamesPlayed: 0
+            }
+        ])
+    );
+
+    state.games
+        .filter(isFinishedGame)
+        .forEach(game => {
+            const homeId =
+                String(game.home_team_id ?? "");
+
+            const awayId =
+                String(game.away_team_id ?? "");
+
+            const homeScore =
+                parseScore(game.home_score);
+
+            const awayScore =
+                parseScore(game.away_score);
+
+            if (
+                homeScore === null ||
+                awayScore === null
+            ) {
+                return;
+            }
+
+            const homeRecord =
+                records.get(homeId);
+
+            const awayRecord =
+                records.get(awayId);
+
+            if (homeRecord) {
+                homeRecord.goalsAgainst += awayScore;
+                homeRecord.gamesPlayed += 1;
+            }
+
+            if (awayRecord) {
+                awayRecord.goalsAgainst += homeScore;
+                awayRecord.gamesPlayed += 1;
+            }
+        });
+
+    return [...records.values()]
+        .sort((a, b) =>
+            a.goalsAgainst -
+            b.goalsAgainst ||
+            Number(a.teamId) -
+            Number(b.teamId)
+        )
+        .slice(0, 5);
+}
+
+/* Busca el siguiente partido no finalizado del equipo. */
+function findNextGame(teamId) {
+    const id = String(teamId);
+
+    return state.games
+        .filter(game => {
+            const participates =
+                String(game.home_team_id) === id ||
+                String(game.away_team_id) === id;
+
+            return (
+                !isFinishedGame(game) &&
+                participates
+            );
+        })
+        .sort((a, b) =>
+            parseLocalDate(a.local_date) -
+            parseLocalDate(b.local_date)
+        )[0] ?? null;
+}
+
+/*
+ * Resuelve el próximo rival.
+ * Un fallo afecta solamente a esa tarjeta.
+ */
+function getNextOpponent(teamId) {
+    try {
+        const game =
+            findNextGame(teamId);
+
+        if (!game) {
+            return {
+                available: true,
+                name: "Sin próximo partido",
+                flag: "",
+                date: ""
+            };
+        }
+
+        const isHome =
+            String(game.home_team_id) ===
+            String(teamId);
+
+        const opponentId = isHome
+            ? game.away_team_id
+            : game.home_team_id;
+
+        const pendingLabel = isHome
+            ? game.away_team_label
+            : game.home_team_label;
+
+        const fallbackName = isHome
+            ? game.away_team_name_en
+            : game.home_team_name_en;
+
+        if (
+            !opponentId ||
+            String(opponentId) === "0"
+        ) {
+            if (!pendingLabel) {
+                throw new Error(
+                    "El rival aún no está definido."
+                );
+            }
+
+            return {
+                available: true,
+                name: pendingLabel,
+                flag: "",
+                date:
+                    formatLocalDate(
+                        game.local_date
+                    )
+            };
+        }
+
+        const opponent = getTeamData(
+            opponentId,
+            fallbackName
+        );
+
+        return {
+            available: true,
+            ...opponent,
+            date:
+                formatLocalDate(
+                    game.local_date
+                )
+        };
+    } catch (error) {
+        console.error(
+            `Error al buscar el rival del equipo ${teamId}:`,
+            error
+        );
+
+        return {
+            available: false,
+            name: "Próximo rival no disponible",
+            flag: "",
+            date: ""
+        };
+    }
+}
+
+/* Genera una tarjeta del ranking defensivo. */
+function createMuroCard(item, position) {
+    const team = getTeamData(
+        item.teamId,
+        null,
+        true
+    );
+
+    const opponent =
+        getNextOpponent(item.teamId);
+
+    const opponentFlag = opponent.flag
+        ? `
+        <img
+          src="${opponent.flag}"
+          alt="Bandera de ${opponent.name}"
+          loading="lazy"
+        >
+      `
+        : `
+        <span
+          class="muro-rival-placeholder"
+          aria-hidden="true"
+        >
+          VS
+        </span>
+      `;
+
+    return `
+    <article class="muro-card ${
+        position === 1
+            ? "first-place"
+            : ""
+    }">
+      <div class="muro-position">
+        <span>${position}</span>
+      </div>
+
+      <div class="muro-team-main">
+        <div class="muro-team-flag">
+          ${
+              flagMarkup(
+                  team,
+                  "muro-flag-placeholder"
+              )
+          }
+        </div>
+
+        <div class="muro-team-info">
+          <span>Equipo</span>
+          <h3>${team.name}</h3>
         </div>
       </div>
 
-    </div>
-  `;
+      <div class="muro-stat">
+        <span>Goles recibidos</span>
 
-  return row;
+        <strong>
+          ${item.goalsAgainst}
+        </strong>
+
+        <small>
+          ${item.gamesPlayed}
+          ${
+              item.gamesPlayed === 1
+                  ? "partido"
+                  : "partidos"
+          }
+        </small>
+      </div>
+
+      <div class="muro-next-game">
+        <span class="muro-next-label">
+          Próximo rival
+        </span>
+
+        <div class="muro-rival">
+          <div class="muro-rival-flag">
+            ${opponentFlag}
+          </div>
+
+          <div>
+            <strong class="${
+                opponent.available
+                    ? ""
+                    : "muro-rival-error"
+            }">
+              ${opponent.name}
+            </strong>
+
+            ${
+                opponent.date
+                    ? `
+                    <small>
+                      ${opponent.date}
+                    </small>
+                  `
+                    : ""
+            }
+          </div>
+        </div>
+      </div>
+    </article>
+  `;
 }
 
+/* Renderiza los cinco mejores registros defensivos. */
+function renderMuro() {
+    if (!dom.muro.grid) return;
+
+    dom.muro.grid.innerHTML = "";
+
+    setText(dom.muro.total, "0");
+    setText(dom.muro.count, "0");
+
+    dom.muro.eyebrow.classList.remove(
+        "visible"
+    );
+
+    dom.muro.status.hidden = true;
+
+    if (
+        !state.loaded.groups ||
+        !state.loaded.games
+    ) {
+        show(dom.muro.empty);
+
+        setText(
+            dom.muro.empty,
+            state.error.groups
+                ? "No fue posible cargar los grupos."
+                : state.error.games
+                    ? "No fue posible cargar los partidos."
+                    : "Cargando grupos y partidos del Mundial..."
+        );
+
+        return;
+    }
+
+    const ranking =
+        calculateMuroRanking();
+
+    if (!state.loaded.teams) {
+        dom.muro.status.hidden = false;
+
+        setText(
+            dom.muro.statusMessage,
+            "El ranking está disponible, pero faltan nombres y banderas."
+        );
+    }
+
+    setText(
+        dom.muro.total,
+        ranking.length
+    );
+
+    setText(
+        dom.muro.count,
+        ranking.length
+    );
+
+    if (!ranking.length) {
+        show(dom.muro.empty);
+
+        setText(
+            dom.muro.empty,
+            "No fue posible construir el ranking defensivo."
+        );
+
+        return;
+    }
+
+    hide(dom.muro.empty);
+
+    dom.muro.eyebrow.classList.add(
+        "visible"
+    );
+
+    dom.muro.grid.innerHTML =
+        ranking
+            .map((item, index) =>
+                createMuroCard(
+                    item,
+                    index + 1
+                )
+            )
+            .join("");
+}
+
+/* =====================================================
+   2.4 ANALÍTICA DE ESTADIOS
+===================================================== */
+
 /*
- * Crea una fila del ranking de asistencia.
+ * Cruza los estadios con sus partidos
+ * y calcula la asistencia potencial.
  */
-function createAnaliticaRankingRow(
-  item,
-  position
+function calculateAnalitica() {
+    const gameCounts = new Map();
+
+    state.analitica.games.forEach(game => {
+        const stadiumId =
+            String(game.stadium_id ?? "").trim();
+
+        if (!stadiumId) return;
+
+        gameCounts.set(
+            stadiumId,
+            (
+                gameCounts.get(stadiumId) ??
+                0
+            ) + 1
+        );
+    });
+
+    return state.stadiums
+        .map(stadium => {
+            const capacity =
+                Number(stadium.capacity || 0);
+
+            const gamesCount =
+                state.analitica.loaded
+                    ? (
+                        gameCounts.get(
+                            String(stadium.id)
+                        ) ?? 0
+                    )
+                    : null;
+
+            return {
+                stadium,
+                capacity,
+                gamesCount,
+                potential:
+                    gamesCount === null
+                        ? null
+                        : capacity * gamesCount
+            };
+        })
+        .sort((a, b) => {
+            if (
+                a.potential === null ||
+                b.potential === null
+            ) {
+                return b.capacity - a.capacity;
+            }
+
+            return (
+                b.potential -
+                a.potential ||
+                b.capacity -
+                a.capacity
+            );
+        });
+}
+
+/* Genera una fila de la gráfica comparativa. */
+function createAnaliticaChartRow(
+    item,
+    maxCapacity,
+    maxGames
 ) {
-  const stadiumName =
-    item.stadium.name_en ??
-    item.stadium.fifa_name ??
-    "Estadio sin nombre";
+    const stadiumName =
+        item.stadium.name_en ??
+        item.stadium.fifa_name ??
+        "Estadio sin nombre";
 
-  const city =
-    item.stadium.city_en ??
-    "Ciudad no disponible";
+    const capacityWidth =
+        maxCapacity > 0
+            ? Math.max(
+                2,
+                Math.round(
+                    item.capacity /
+                    maxCapacity *
+                    100
+                )
+            )
+            : 0;
 
-  const country =
-    item.stadium.country_en ??
-    "País no disponible";
+    const gamesWidth =
+        item.gamesCount !== null &&
+        maxGames > 0
+            ? Math.max(
+                2,
+                Math.round(
+                    item.gamesCount /
+                    maxGames *
+                    100
+                )
+            )
+            : 0;
 
-  const potentialText =
-    item.attendancePotential === null
-      ? "Esperando datos de partidos"
-      : item.attendancePotential
-          .toLocaleString("es-CR");
+    return `
+    <article class="analitica-chart-row">
+      <div class="analitica-stadium-name">
+        <strong>
+          ${stadiumName}
+        </strong>
 
-  const gamesText =
-    item.gamesCount === null
-      ? "—"
-      : String(item.gamesCount);
+        <span>
+          ${
+              item.stadium.city_en ??
+              "Ciudad no disponible"
+          }
+        </span>
+      </div>
 
-  const row =
-    document.createElement("article");
+      <div class="analitica-bars">
+        <div class="analitica-bar-group">
+          <div class="analitica-bar-header">
+            <span>Capacidad</span>
 
-  row.className =
-    "analitica-ranking-row";
+            <strong>
+              ${
+                  item.capacity.toLocaleString(
+                      "es-CR"
+                  )
+              }
+            </strong>
+          </div>
 
-  row.innerHTML = `
-    <div class="analitica-ranking-position">
-      ${position}
-    </div>
+          <div class="analitica-bar-track">
+            <div
+              class="analitica-bar analitica-capacity-bar"
+              style="width: ${capacityWidth}%"
+            ></div>
+          </div>
+        </div>
 
-    <div class="analitica-ranking-stadium">
-      <span>
-        Estadio
-      </span>
+        <div class="analitica-bar-group">
+          <div class="analitica-bar-header">
+            <span>Partidos</span>
 
-      <strong>
-        ${stadiumName}
-      </strong>
+            <strong>
+              ${
+                  item.gamesCount === null
+                      ? "Esperando datos"
+                      : `${item.gamesCount} partidos`
+              }
+            </strong>
+          </div>
 
-      <small>
-        ${city}, ${country}
-      </small>
-    </div>
-
-    <div class="analitica-ranking-data">
-      <span>
-        Capacidad
-      </span>
-
-      <strong>
-        ${item.capacity.toLocaleString("es-CR")}
-      </strong>
-    </div>
-
-    <div class="analitica-ranking-data">
-      <span>
-        Partidos
-      </span>
-
-      <strong>
-        ${gamesText}
-      </strong>
-    </div>
-
-    <div class="analitica-ranking-data potential">
-      <span>
-        Asistencia potencial
-      </span>
-
-      <strong>
-        ${potentialText}
-      </strong>
-    </div>
+          <div class="analitica-bar-track">
+            <div
+              class="analitica-bar analitica-games-bar"
+              style="width: ${gamesWidth}%"
+            ></div>
+          </div>
+        </div>
+      </div>
+    </article>
   `;
+}
 
-  return row;
+/* Genera una fila del ranking de asistencia. */
+function createAnaliticaRankingRow(
+    item,
+    position
+) {
+    const stadium = item.stadium;
+
+    return `
+    <article class="analitica-ranking-row">
+      <div class="analitica-ranking-position">
+        ${position}
+      </div>
+
+      <div class="analitica-ranking-stadium">
+        <span>Estadio</span>
+
+        <strong>
+          ${
+              stadium.name_en ??
+              stadium.fifa_name ??
+              "Estadio sin nombre"
+          }
+        </strong>
+
+        <small>
+          ${
+              stadium.city_en ??
+              "Ciudad no disponible"
+          },
+          ${
+              stadium.country_en ??
+              "País no disponible"
+          }
+        </small>
+      </div>
+
+      <div class="analitica-ranking-data">
+        <span>Capacidad</span>
+
+        <strong>
+          ${
+              item.capacity.toLocaleString(
+                  "es-CR"
+              )
+          }
+        </strong>
+      </div>
+
+      <div class="analitica-ranking-data">
+        <span>Partidos</span>
+
+        <strong>
+          ${item.gamesCount ?? "—"}
+        </strong>
+      </div>
+
+      <div class="analitica-ranking-data potential">
+        <span>
+          Asistencia potencial
+        </span>
+
+        <strong>
+          ${
+              item.potential === null
+                  ? "Esperando datos de partidos"
+                  : item.potential.toLocaleString(
+                      "es-CR"
+                  )
+          }
+        </strong>
+      </div>
+    </article>
+  `;
 }
 
 /*
- * Muestra la información de los estadios.
  * Los estadios permanecen visibles aunque
- * falten los partidos.
+ * falle la petición independiente de partidos.
  */
 function renderAnalitica() {
-  if (
-    !analiticaChart ||
-    !analiticaEmptyState ||
-    !analiticaRanking
-  ) {
-    return;
-  }
+    if (!dom.analitica.chart) return;
 
-  analiticaChart.innerHTML = "";
-  analiticaRanking.innerHTML = "";
+    dom.analitica.chart.innerHTML = "";
+    dom.analitica.ranking.innerHTML = "";
 
-  analiticaTotal.textContent = "0";
-  analiticaStatStadiums.textContent = "—";
-  analiticaStatGames.textContent = "—";
-  analiticaStatPotential.textContent = "—";
+    setText(dom.analitica.total, "0");
+    setText(dom.analitica.stadiums, "—");
+    setText(dom.analitica.games, "—");
+    setText(dom.analitica.potential, "—");
 
-  if (!state.stadiumsLoaded) {
-    analiticaEmptyState.style.display =
-      "block";
+    if (!state.loaded.stadiums) {
+        show(dom.analitica.empty);
 
-    analiticaEmptyState.textContent =
-      state.stadiumsError
-        ? "No fue posible cargar los estadios."
-        : "Cargando los estadios...";
+        setText(
+            dom.analitica.empty,
+            state.error.stadiums
+                ? "No fue posible cargar los estadios."
+                : "Cargando los estadios..."
+        );
 
-    analiticaWaiting.hidden = true;
-    return;
-  }
+        dom.analitica.waiting.hidden = true;
 
-  const ranking =
-    calculateAnaliticaRanking();
-
-  analiticaTotal.textContent =
-    String(ranking.length);
-
-  analiticaStatStadiums.textContent =
-    String(ranking.length);
-
-  analiticaEmptyState.style.display =
-    "none";
-
-  if (!state.analiticaGamesLoaded) {
-    analiticaWaiting.hidden = false;
-
-    analiticaWaitingTitle.textContent =
-      state.analiticaGamesError
-        ? "No fue posible cargar los partidos"
-        : "Esperando datos de partidos";
-
-    analiticaWaitingMessage.textContent =
-      state.analiticaGamesError
-        ? "Los estadios permanecen visibles. Se agotaron los reintentos de /get/games."
-        : "Los estadios permanecen visibles mientras /get/games se reintenta con backoff.";
-
-    analiticaStatGames.textContent = "—";
-    analiticaStatPotential.textContent = "—";
-  } else {
-    analiticaWaiting.hidden = true;
-
-    analiticaStatGames.textContent =
-      String(
-        state.analiticaGames.length
-      );
-
-    const highestPotential =
-      ranking[0]?.attendancePotential ?? 0;
-
-    analiticaStatPotential.textContent =
-      highestPotential.toLocaleString(
-        "es-CR"
-      );
-  }
-
-  const maxCapacity =
-    Math.max(
-      ...ranking.map(
-        item => item.capacity
-      ),
-      0
-    );
-
-  const maxGames =
-    Math.max(
-      ...ranking.map(
-        item => item.gamesCount ?? 0
-      ),
-      0
-    );
-
-  ranking.forEach(item => {
-    analiticaChart.appendChild(
-      createAnaliticaChartRow(
-        item,
-        maxCapacity,
-        maxGames
-      )
-    );
-  });
-
-  ranking.forEach(
-    (item, index) => {
-      analiticaRanking.appendChild(
-        createAnaliticaRankingRow(
-          item,
-          index + 1
-        )
-      );
+        return;
     }
-  );
+
+    const ranking =
+        calculateAnalitica();
+
+    setText(
+        dom.analitica.total,
+        ranking.length
+    );
+
+    setText(
+        dom.analitica.stadiums,
+        ranking.length
+    );
+
+    hide(dom.analitica.empty);
+
+    dom.analitica.waiting.hidden =
+        state.analitica.loaded;
+
+    if (!state.analitica.loaded) {
+        setText(
+            dom.analitica.waitingTitle,
+            state.analitica.error
+                ? "No fue posible cargar los partidos"
+                : "Esperando datos de partidos"
+        );
+
+        setText(
+            dom.analitica.waitingMessage,
+            state.analitica.error
+                ? (
+                    "Los estadios permanecen visibles. " +
+                    "Se agotaron los reintentos."
+                )
+                : (
+                    "Los estadios permanecen visibles " +
+                    "mientras /get/games se reintenta."
+                )
+        );
+    } else {
+        setText(
+            dom.analitica.games,
+            state.analitica.games.length
+        );
+
+        setText(
+            dom.analitica.potential,
+            (
+                ranking[0]?.potential ??
+                0
+            ).toLocaleString("es-CR")
+        );
+    }
+
+    const maxCapacity = Math.max(
+        ...ranking.map(
+            item => item.capacity
+        ),
+        0
+    );
+
+    const maxGames = Math.max(
+        ...ranking.map(
+            item => item.gamesCount ?? 0
+        ),
+        0
+    );
+
+    dom.analitica.chart.innerHTML =
+        ranking
+            .map(item =>
+                createAnaliticaChartRow(
+                    item,
+                    maxCapacity,
+                    maxGames
+                )
+            )
+            .join("");
+
+    dom.analitica.ranking.innerHTML =
+        ranking
+            .map((item, index) =>
+                createAnaliticaRankingRow(
+                    item,
+                    index + 1
+                )
+            )
+            .join("");
 }
 
 /*
- * Countdown específico de Analítica.
- */
-function runAnaliticaCountdown(
-  seconds,
-  statusCode
-) {
-  return new Promise(resolve => {
-    let remainingSeconds = seconds;
-
-    analiticaWaiting.hidden = false;
-
-    const updateMessage = () => {
-      analiticaWaitingTitle.textContent =
-        `Error HTTP ${statusCode} en /get/games`;
-
-      analiticaWaitingMessage.textContent =
-        `Los estadios permanecen visibles. Nuevo intento en ${remainingSeconds} segundo${
-          remainingSeconds === 1
-            ? ""
-            : "s"
-        }.`;
-    };
-
-    updateMessage();
-
-    const countdown =
-      setInterval(() => {
-        remainingSeconds -= 1;
-
-        if (remainingSeconds <= 0) {
-          clearInterval(countdown);
-
-          analiticaWaitingTitle.textContent =
-            "Reintentando partidos";
-
-          analiticaWaitingMessage.textContent =
-            "Realizando una nueva petición a /get/games...";
-
-          resolve();
-          return;
-        }
-
-        updateMessage();
-      }, 1000);
-  });
-}
-
-/*
- * Carga los partidos exclusivos de Analítica.
+ * Carga independiente para Analítica.
  * Solo esta petición entra en backoff.
  */
-function loadAnaliticaGames(
-  attempt = 0
-) {
-  if (
-    state.analiticaGamesLoading &&
-    attempt === 0
-  ) {
-    return;
-  }
+function loadAnaliticaGames() {
+    if (state.analitica.loading) return;
 
-  state.analiticaGamesLoading = true;
-  state.analiticaGamesError = false;
+    state.analitica.loading = true;
+    state.analitica.error = false;
 
-  renderAnalitica();
+    renderAnalitica();
 
-  const requestUrl =
-    TEST_ANALITICA_GAMES_STATUS === 429 ||
-    TEST_ANALITICA_GAMES_STATUS === 500
-      ? `http://localhost:3001/status/${TEST_ANALITICA_GAMES_STATUS}`
-      : `${BASE}/get/games`;
+    fetchJsonWithBackoff({
+        url: `${BASE}/get/games`,
+        label: "/get/games de Analítica",
+        testStatus:
+            TEST_ANALITICA_GAMES_STATUS,
+        retryStatuses: [429, 500],
 
-  fetch(requestUrl)
-    .then(response => {
-      if (response.ok) {
-        return response.json();
-      }
+        onRetry: ({
+            status,
+            seconds,
+            retrying
+        }) => {
+            dom.analitica.waiting.hidden =
+                false;
 
-      const canRetry =
-        response.status === 429 ||
-        response.status === 500;
+            setText(
+                dom.analitica.waitingTitle,
+                retrying
+                    ? "Reintentando partidos"
+                    : `Error HTTP ${status} en /get/games`
+            );
 
-      if (!canRetry) {
-        throw new Error(
-          `Error HTTP ${response.status} al cargar partidos de Analítica`
-        );
-      }
+            setText(
+                dom.analitica.waitingMessage,
+                retrying
+                    ? "Realizando una nueva petición..."
+                    : (
+                        "Los estadios permanecen visibles. " +
+                        `Nuevo intento en ${seconds} ` +
+                        `segundo${
+                            seconds === 1 ? "" : "s"
+                        }.`
+                    )
+            );
+        }
+    })
+        .then(data => {
+            if (!Array.isArray(data.games)) {
+                throw new Error(
+                    "La API no devolvió una lista válida de partidos."
+                );
+            }
 
-      if (
-        attempt >=
-        ANALITICA_RETRY_DELAYS.length
-      ) {
-        throw new Error(
-          "Se agotaron los reintentos de /get/games para Analítica."
-        );
-      }
+            state.analitica.games = data.games;
+            state.analitica.loaded = true;
+            state.analitica.error = false;
 
-      const delay =
-        ANALITICA_RETRY_DELAYS[
-          attempt
+            renderAnalitica();
+        })
+        .catch(error => {
+            console.error(
+                "Error en Analítica:",
+                error
+            );
+
+            state.analitica.error = true;
+
+            renderAnalitica();
+        })
+        .finally(() => {
+            state.analitica.loading = false;
+        });
+}
+
+/* =====================================================
+   2.5 RADAR DE EMPATES
+===================================================== */
+
+/*
+ * Usa los partidos principales para dibujar
+ * la matriz antes de realizar su petición independiente.
+ */
+function syncEmpatesFromGames() {
+    if (
+        state.loaded.games &&
+        !state.empates.loaded
+    ) {
+        state.empates.games = [
+            ...state.games
         ];
 
-      console.warn(
-        `/get/games de Analítica devolvió HTTP ${response.status}. ` +
-        `Reintento ${attempt + 1} en ${delay / 1000}s.`
-      );
-
-      return runAnaliticaCountdown(
-        delay / 1000,
-        response.status
-      ).then(() => {
-        return loadAnaliticaGames(
-          attempt + 1
-        );
-      });
-    })
-    .then(jsonData => {
-      /*
-       * Cuando ocurrió un reintento recursivo,
-       * el resultado final ya fue procesado.
-       */
-      if (!jsonData) {
-        return;
-      }
-
-      if (
-        !Array.isArray(
-          jsonData.games
-        )
-      ) {
-        throw new Error(
-          "La API no devolvió una lista válida de partidos para Analítica."
-        );
-      }
-
-      state.analiticaGames =
-        jsonData.games;
-
-      state.analiticaGamesLoaded =
-        true;
-
-      state.analiticaGamesError =
-        false;
-
-      state.analiticaRetryAttempt = 0;
-
-      console.log(
-        `${state.analiticaGames.length} partidos cargados para Analítica.`
-      );
-
-      renderAnalitica();
-    })
-    .catch(error => {
-      /*
-       * Los errores intermedios ya continúan
-       * mediante la llamada recursiva.
-       */
-      if (
-        attempt <
-          ANALITICA_RETRY_DELAYS.length &&
-        (
-          error.message.includes("429") ||
-          error.message.includes("500")
-        )
-      ) {
-        return;
-      }
-
-      console.error(
-        "Error al cargar partidos para Analítica:",
-        error
-      );
-
-      state.analiticaGames = [];
-      state.analiticaGamesLoaded = false;
-      state.analiticaGamesError = true;
-
-      renderAnalitica();
-    })
-    .finally(() => {
-      /*
-       * Solo el intento principal libera
-       * el estado de carga.
-       */
-      if (
-        attempt === 0 ||
-        state.analiticaGamesLoaded ||
-        state.analiticaGamesError
-      ) {
-        state.analiticaGamesLoading =
-          false;
-      }
-    });
-}
-
-/* ═══════════════════════════════════════════════════════
-   PANTALLA 2.5: RADAR DE EMPATES
-═══════════════════════════════════════════════════════ */
-
-/*
- * Aprovecha los partidos ya obtenidos por la aplicación
- * para dibujar inmediatamente la matriz.
- */
-function syncEmpatesFromMainGames() {
-  if (
-    state.gamesLoaded &&
-    !state.empatesGamesLoaded
-  ) {
-    state.empatesGames =
-      [...state.games];
-
-    state.empatesGamesLoaded =
-      true;
-
-    state.empatesGamesError =
-      false;
-  }
-}
-
-/*
- * Obtiene la información visible de un equipo.
- */
-function getEmpateTeamData(
-  teamId,
-  fallbackName
-) {
-  const team =
-    getTeamById(teamId);
-
-  return {
-    id: teamId,
-
-    name:
-      team?.name_en ??
-      fallbackName ??
-      `Equipo ${teamId}`,
-
-    flag:
-      team?.flag ?? ""
-  };
-}
-
-/*
- * Filtra partidos terminados y empatados,
- * y los agrupa de A a L.
- */
-function calculateEmpatesByGroup() {
-  const groupedResults = {};
-
-  EMPATES_GROUPS.forEach(groupName => {
-    groupedResults[groupName] = [];
-  });
-
-  state.empatesGames
-    .filter(game => {
-      if (!isFinishedGame(game)) {
-        return false;
-      }
-
-      const homeScore =
-        parseGameScore(
-          game.home_score
-        );
-
-      const awayScore =
-        parseGameScore(
-          game.away_score
-        );
-
-      return (
-        homeScore !== null &&
-        awayScore !== null &&
-        homeScore === awayScore
-      );
-    })
-    .forEach(game => {
-      const groupName =
-        String(game.group ?? "")
-          .trim()
-          .toUpperCase();
-
-      if (
-        !EMPATES_GROUPS.includes(
-          groupName
-        )
-      ) {
-        return;
-      }
-
-      groupedResults[
-        groupName
-      ].push(game);
-    });
-
-  EMPATES_GROUPS.forEach(groupName => {
-    groupedResults[groupName].sort(
-      (gameA, gameB) => {
-        return (
-          parseLocalDate(
-            gameA.local_date
-          ) -
-          parseLocalDate(
-            gameB.local_date
-          )
-        );
-      }
-    );
-  });
-
-  state.empatesByGroup =
-    groupedResults;
-
-  return groupedResults;
-}
-
-/*
- * Genera una bandera o un respaldo visual.
- */
-function createEmpateFlagMarkup(
-  team
-) {
-  if (team.flag) {
-    return `
-      <img
-        src="${team.flag}"
-        alt="Bandera de ${team.name}"
-        loading="lazy"
-      >
-    `;
-  }
-
-  return `
-    <span
-      class="empate-flag-placeholder"
-      aria-label="Bandera no disponible"
-    >
-      ID
-    </span>
-  `;
-}
-
-/*
- * Crea una celda para un partido empatado.
- */
-function createEmpateMatchCell(game) {
-  const homeTeam =
-    getEmpateTeamData(
-      game.home_team_id,
-      game.home_team_name_en
-    );
-
-  const awayTeam =
-    getEmpateTeamData(
-      game.away_team_id,
-      game.away_team_name_en
-    );
-
-  const homeScore =
-    parseGameScore(
-      game.home_score
-    );
-
-  const awayScore =
-    parseGameScore(
-      game.away_score
-    );
-
-  const match =
-    document.createElement(
-      "article"
-    );
-
-  match.className =
-    "empate-match";
-
-  match.innerHTML = `
-    <p class="empate-match-date">
-      ${formatLocalDate(game.local_date)}
-    </p>
-
-    <div class="empate-team-row">
-
-      <div class="empate-team">
-
-        <div class="empate-team-flag">
-          ${createEmpateFlagMarkup(
-            homeTeam
-          )}
-        </div>
-
-        <strong>
-          ${homeTeam.name}
-        </strong>
-
-      </div>
-
-      <span class="empate-score">
-        ${homeScore}
-      </span>
-
-    </div>
-
-    <div class="empate-separator">
-      Empate
-    </div>
-
-    <div class="empate-team-row">
-
-      <div class="empate-team">
-
-        <div class="empate-team-flag">
-          ${createEmpateFlagMarkup(
-            awayTeam
-          )}
-        </div>
-
-        <strong>
-          ${awayTeam.name}
-        </strong>
-
-      </div>
-
-      <span class="empate-score">
-        ${awayScore}
-      </span>
-
-    </div>
-  `;
-
-  return match;
-}
-
-/*
- * Crea una tarjeta completa para un grupo.
- */
-function createEmpatesGroupCard(
-  groupName,
-  games
-) {
-  const groupCard =
-    document.createElement(
-      "article"
-    );
-
-  groupCard.className =
-    "empates-group-card";
-
-  const header =
-    document.createElement(
-      "div"
-    );
-
-  header.className =
-    "empates-group-header";
-
-  header.innerHTML = `
-    <div>
-      <span>
-        Grupo
-      </span>
-
-      <strong>
-        ${groupName}
-      </strong>
-    </div>
-
-    <div class="empates-group-count">
-      ${games.length}
-      ${
-        games.length === 1
-          ? "empate"
-          : "empates"
-      }
-    </div>
-  `;
-
-  groupCard.appendChild(header);
-
-  const content =
-    document.createElement(
-      "div"
-    );
-
-  content.className =
-    "empates-group-content";
-
-  if (games.length === 0) {
-    const emptyMessage =
-      document.createElement(
-        "p"
-      );
-
-    emptyMessage.className =
-      "empates-group-empty";
-
-    emptyMessage.textContent =
-      "Sin empates registrados.";
-
-    content.appendChild(
-      emptyMessage
-    );
-  } else {
-    games.forEach(game => {
-      content.appendChild(
-        createEmpateMatchCell(game)
-      );
-    });
-  }
-
-  groupCard.appendChild(content);
-
-  return groupCard;
-}
-
-/*
- * Calcula el grupo con más empates.
- */
-function getTopEmpatesGroup(
-  groupedResults
-) {
-  let topGroup = null;
-  let highestCount = 0;
-
-  EMPATES_GROUPS.forEach(groupName => {
-    const currentCount =
-      groupedResults[groupName].length;
-
-    if (currentCount > highestCount) {
-      highestCount =
-        currentCount;
-
-      topGroup =
-        groupName;
+        state.empates.loaded = true;
+        state.empates.error = false;
     }
-  });
+}
 
-  if (!topGroup) {
-    return "Sin empates";
-  }
+/* Filtra los empates terminados y los agrupa de A a L. */
+function calculateEmpates() {
+    const grouped =
+        Object.fromEntries(
+            GROUPS.map(group => [
+                group,
+                []
+            ])
+        );
 
-  return (
-    `Grupo ${topGroup} ` +
-    `(${highestCount})`
-  );
+    state.empates.games
+        .filter(game => {
+            const homeScore =
+                parseScore(game.home_score);
+
+            const awayScore =
+                parseScore(game.away_score);
+
+            return (
+                isFinishedGame(game) &&
+                homeScore !== null &&
+                awayScore !== null &&
+                homeScore === awayScore
+            );
+        })
+        .forEach(game => {
+            const group =
+                String(game.group ?? "")
+                    .trim()
+                    .toUpperCase();
+
+            if (grouped[group]) {
+                grouped[group].push(game);
+            }
+        });
+
+    GROUPS.forEach(group => {
+        grouped[group].sort((a, b) =>
+            parseLocalDate(a.local_date) -
+            parseLocalDate(b.local_date)
+        );
+    });
+
+    return grouped;
+}
+
+/* Genera la celda visual de un empate. */
+function createEmpateMatch(game) {
+    const homeTeam = getTeamData(
+        game.home_team_id,
+        game.home_team_name_en
+    );
+
+    const awayTeam = getTeamData(
+        game.away_team_id,
+        game.away_team_name_en
+    );
+
+    return `
+    <article class="empate-match">
+      <p class="empate-match-date">
+        ${formatLocalDate(game.local_date)}
+      </p>
+
+      <div class="empate-team-row">
+        <div class="empate-team">
+          <div class="empate-team-flag">
+            ${
+                flagMarkup(
+                    homeTeam,
+                    "empate-flag-placeholder"
+                )
+            }
+          </div>
+
+          <strong>
+            ${homeTeam.name}
+          </strong>
+        </div>
+
+        <span class="empate-score">
+          ${parseScore(game.home_score)}
+        </span>
+      </div>
+
+      <div class="empate-separator">
+        Empate
+      </div>
+
+      <div class="empate-team-row">
+        <div class="empate-team">
+          <div class="empate-team-flag">
+            ${
+                flagMarkup(
+                    awayTeam,
+                    "empate-flag-placeholder"
+                )
+            }
+          </div>
+
+          <strong>
+            ${awayTeam.name}
+          </strong>
+        </div>
+
+        <span class="empate-score">
+          ${parseScore(game.away_score)}
+        </span>
+      </div>
+    </article>
+  `;
+}
+
+/* Genera la tarjeta de un grupo. */
+function createEmpatesGroup(group, games) {
+    return `
+    <article class="empates-group-card">
+      <div class="empates-group-header">
+        <div>
+          <span>Grupo</span>
+          <strong>${group}</strong>
+        </div>
+
+        <div class="empates-group-count">
+          ${games.length}
+          ${games.length === 1 ? "empate" : "empates"}
+        </div>
+      </div>
+
+      <div class="empates-group-content">
+        ${
+            games.length
+                ? games
+                    .map(createEmpateMatch)
+                    .join("")
+                : `
+                <p class="empates-group-empty">
+                  Sin empates registrados.
+                </p>
+              `
+        }
+      </div>
+    </article>
+  `;
+}
+
+/* Busca el grupo con mayor cantidad de empates. */
+function getTopEmpatesGroup(grouped) {
+    let topGroup = null;
+    let highestCount = 0;
+
+    GROUPS.forEach(group => {
+        const count =
+            grouped[group].length;
+
+        if (count > highestCount) {
+            topGroup = group;
+            highestCount = count;
+        }
+    });
+
+    return topGroup
+        ? `Grupo ${topGroup} (${highestCount})`
+        : "Sin empates";
 }
 
 /*
- * Renderiza la matriz A-L sin depender
- * de una tabla tradicional.
+ * Renderiza los grupos.
+ * Durante un 429 la matriz existente no se elimina.
  */
 function renderEmpates() {
-  if (
-    !empatesMatrix ||
-    !empatesEmptyState
-  ) {
-    return;
-  }
-
-  if (!state.empatesGamesLoaded) {
-    empatesEmptyState.style.display =
-      "block";
-
-    empatesEmptyState.textContent =
-      state.empatesGamesError
-        ? "No fue posible cargar los partidos."
-        : "Preparando la matriz de empates...";
-
-    return;
-  }
-
-  const groupedResults =
-    calculateEmpatesByGroup();
-
-  const totalDraws =
-    EMPATES_GROUPS.reduce(
-      (total, groupName) => {
-        return (
-          total +
-          groupedResults[
-            groupName
-          ].length
-        );
-      },
-      0
-    );
-
-  empatesTotal.textContent =
-    String(totalDraws);
-
-  empatesStatTotal.textContent =
-    String(totalDraws);
-
-  empatesStatGroups.textContent =
-    `${EMPATES_GROUPS.length} / 12`;
-
-  empatesStatTopGroup.textContent =
-    getTopEmpatesGroup(
-      groupedResults
-    );
-
-  empatesEmptyState.style.display =
-    "none";
-
-  /*
-   * La matriz se reemplaza únicamente cuando
-   * existen datos válidos. Durante un 429
-   * permanece visible la versión anterior.
-   */
-  empatesMatrix.innerHTML = "";
-
-  EMPATES_GROUPS.forEach(groupName => {
-    empatesMatrix.appendChild(
-      createEmpatesGroupCard(
-        groupName,
-        groupedResults[groupName]
-      )
-    );
-  });
-}
-
-/*
- * Countdown visible para errores HTTP 429.
- */
-function runEmpatesCountdown(
-  seconds
-) {
-  return new Promise(resolve => {
-    let remainingSeconds =
-      seconds;
-
-    empatesRetryBanner.hidden =
-      false;
-
-    const updateCountdown = () => {
-      empatesRetryTitle.textContent =
-        "Límite de solicitudes alcanzado";
-
-      empatesRetryMessage.textContent =
-        "Los grupos ya dibujados permanecen visibles. " +
-        `Nuevo intento en ${remainingSeconds} segundo${
-          remainingSeconds === 1
-            ? ""
-            : "s"
-        }.`;
-
-      empatesCountdown.textContent =
-        String(remainingSeconds);
-    };
-
-    updateCountdown();
-
-    const interval =
-      setInterval(() => {
-        remainingSeconds -= 1;
-
-        if (remainingSeconds <= 0) {
-          clearInterval(interval);
-
-          empatesRetryTitle.textContent =
-            "Reintentando partidos";
-
-          empatesRetryMessage.textContent =
-            "Realizando una nueva petición a /get/games...";
-
-          empatesCountdown.textContent =
-            "0";
-
-          resolve();
-          return;
-        }
-
-        updateCountdown();
-      }, 1000);
-  });
-}
-
-/*
- * Petición recursiva con backoff.
- * Solo responde con reintentos ante HTTP 429.
- */
-function fetchEmpatesGamesWithRetry(
-  attempt = 0
-) {
-  const requestUrl =
-    TEST_EMPATES_GAMES_STATUS === 429
-      ? "http://localhost:3001/status/429"
-      : `${BASE}/get/games`;
-
-  return fetch(requestUrl)
-    .then(response => {
-      if (response.ok) {
-        return response.json();
-      }
-
-      if (response.status !== 429) {
-        throw new Error(
-          `Error HTTP ${response.status} al cargar los empates`
-        );
-      }
-
-      if (
-        attempt >=
-        EMPATES_RETRY_DELAYS.length
-      ) {
-        throw new Error(
-          "Se agotaron los reintentos de /get/games para Radar de Empates."
-        );
-      }
-
-      const delay =
-        EMPATES_RETRY_DELAYS[
-          attempt
-        ];
-
-      console.warn(
-        `/get/games de Empates devolvió HTTP 429. ` +
-        `Reintento ${attempt + 1} en ${delay / 1000}s.`
-      );
-
-      return runEmpatesCountdown(
-        delay / 1000
-      ).then(() => {
-        return fetchEmpatesGamesWithRetry(
-          attempt + 1
-        );
-      });
-    });
-}
-
-/*
- * Carga o actualiza los partidos del Radar.
- */
-function loadEmpatesGames() {
-  if (state.empatesGamesLoading) {
-    return;
-  }
-
-  state.empatesGamesLoading =
-    true;
-
-  state.empatesGamesError =
-    false;
-
-  fetchEmpatesGamesWithRetry()
-    .then(jsonData => {
-      if (
-        !Array.isArray(
-          jsonData.games
-        )
-      ) {
-        throw new Error(
-          "La API no devolvió una lista válida de partidos para Radar de Empates."
-        );
-      }
-
-      state.empatesGames =
-        jsonData.games;
-
-      state.empatesGamesLoaded =
-        true;
-
-      state.empatesGamesError =
-        false;
-
-      state.empatesRequestCompleted =
-        true;
-
-      empatesRetryBanner.hidden =
-        true;
-
-      console.log(
-        `${state.empatesGames.length} partidos cargados para Radar de Empates.`
-      );
-
-      renderEmpates();
-    })
-    .catch(error => {
-      console.error(
-        "Error al cargar Radar de Empates:",
-        error
-      );
-
-      state.empatesGamesError =
-        true;
-
-      state.empatesRequestCompleted =
-        true;
-
-      /*
-       * No se borra empatesGames ni la matriz.
-       */
-      empatesRetryBanner.hidden =
-        false;
-
-      empatesRetryTitle.textContent =
-        "No se pudieron actualizar los partidos";
-
-      empatesRetryMessage.textContent =
-        "Los grupos ya dibujados permanecen visibles. " +
-        "Se agotaron los reintentos automáticos.";
-
-      empatesCountdown.textContent =
-        "—";
-
-      if (
-        !state.empatesGamesLoaded
-      ) {
-        renderEmpates();
-      }
-    })
-    .finally(() => {
-      state.empatesGamesLoading =
-        false;
-    });
-}
-
-/* ──────────────────────────────────────────────────────
-   CARGAR GRUPOS
-────────────────────────────────────────────────────── */
-
-function loadGroups() {
-  fetch(`${BASE}/get/groups`)
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(
-          `Error HTTP ${response.status} al cargar grupos`
-        );
-      }
-
-      return response.json();
-    })
-    .then(jsonData => {
-      const receivedGroups =
-        Array.isArray(jsonData.groups)
-          ? jsonData.groups
-          : Array.isArray(jsonData)
-            ? jsonData
-            : null;
-
-      if (!receivedGroups) {
-        throw new Error(
-          "La API no devolvió una lista válida de grupos."
-        );
-      }
-
-      state.groups =
-        receivedGroups;
-
-      state.groupsLoaded = true;
-      state.groupsError = false;
-
-      console.log(
-        `${state.groups.length} grupos cargados correctamente.`
-      );
-
-      renderMuro();
-    })
-    .catch(error => {
-      state.groups = [];
-      state.groupsLoaded = false;
-      state.groupsError = true;
-
-      console.error(
-        "Error al cargar grupos:",
-        error
-      );
-
-      renderMuro();
-    });
-}
-
-/* ──────────────────────────────────────────────────────
-   CARGAR EQUIPOS
-────────────────────────────────────────────────────── */
-function loadTeams(
-  isBackgroundRetry = false
-) {
-  if (teamsRequestInProgress) {
-    return;
-  }
-
-  teamsRequestInProgress = true;
-
-  fetch(`${BASE}/get/teams`)
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(
-          `Error HTTP ${response.status} al cargar equipos`
-        );
-      }
-
-      return response.json();
-    })
-    .then(jsonData => {
-      if (
-        !Array.isArray(
-          jsonData.teams
-        )
-      ) {
-        throw new Error(
-          "La API no devolvió una lista válida de equipos."
-        );
-      }
-
-      state.teams =
-        jsonData.teams;
-
-      state.teamsLoaded = true;
-      state.teamsError = false;
-      state.teamsRetryAttempt = 0;
-
-      clearTeamsBackgroundRetry();
-
-      saveToCache(
-        CACHE_KEYS.teams,
-        state.teams
-      );
-
-      markResourceAsFresh(
-        "teams"
-      );
-
-      populateTeamSelector();
-      renderGoleadas();
-      renderMuro();
-      renderEmpates();
-
-      console.log(
-        `${state.teams.length} equipos cargados correctamente.`
-      );
-    })
-    .catch(error => {
-      console.error(
-        "Error al cargar equipos:",
-        error
-      );
-
-      const cachedTeams =
-        getFromCache(
-          CACHE_KEYS.teams
-        );
-
-      if (
-        cachedTeams &&
-        Array.isArray(
-          cachedTeams.data
-        )
-      ) {
-        state.teams =
-          cachedTeams.data;
-
-        state.teamsLoaded = true;
-        state.teamsError = false;
-
-        markResourceAsCached(
-          "teams",
-          cachedTeams.savedAt
-        );
-
-        populateTeamSelector();
-        renderGoleadas();
-        renderMuro();
-        renderEmpates();
-
-        console.warn(
-          "Se utilizaron equipos guardados en localStorage."
+    if (!dom.empates.matrix) return;
+
+    if (!state.empates.loaded) {
+        show(dom.empates.empty);
+
+        setText(
+            dom.empates.empty,
+            state.empates.error
+                ? "No fue posible cargar los partidos."
+                : "Preparando la matriz de empates..."
         );
 
         return;
-      }
+    }
 
-      state.teams = [];
-      state.teamsLoaded = false;
-      state.teamsError = true;
+    const grouped =
+        calculateEmpates();
 
-      teamSelect.innerHTML = `
+    const total = GROUPS.reduce(
+        (sum, group) =>
+            sum + grouped[group].length,
+        0
+    );
+
+    setText(dom.empates.total, total);
+    setText(dom.empates.statTotal, total);
+
+    setText(
+        dom.empates.statGroups,
+        `${GROUPS.length} / 12`
+    );
+
+    setText(
+        dom.empates.statTop,
+        getTopEmpatesGroup(grouped)
+    );
+
+    hide(dom.empates.empty);
+
+    dom.empates.matrix.innerHTML =
+        GROUPS
+            .map(group =>
+                createEmpatesGroup(
+                    group,
+                    grouped[group]
+                )
+            )
+            .join("");
+}
+
+/*
+ * Carga independiente para Empates.
+ * Solo los errores 429 activan el backoff.
+ */
+function loadEmpatesGames() {
+    if (state.empates.loading) return;
+
+    state.empates.loading = true;
+    state.empates.error = false;
+
+    fetchJsonWithBackoff({
+        url: `${BASE}/get/games`,
+        label: "/get/games de Empates",
+        testStatus:
+            TEST_EMPATES_GAMES_STATUS,
+        retryStatuses: [429],
+
+        onRetry: ({
+            seconds,
+            retrying
+        }) => {
+            dom.empates.retry.hidden = false;
+
+            setText(
+                dom.empates.retryTitle,
+                retrying
+                    ? "Reintentando partidos"
+                    : "Límite de solicitudes alcanzado"
+            );
+
+            setText(
+                dom.empates.retryMessage,
+                retrying
+                    ? "Realizando una nueva petición a /get/games..."
+                    : (
+                        "Los grupos ya dibujados permanecen visibles. " +
+                        `Nuevo intento en ${seconds} ` +
+                        `segundo${
+                            seconds === 1 ? "" : "s"
+                        }.`
+                    )
+            );
+
+            setText(
+                dom.empates.countdown,
+                retrying ? "0" : seconds
+            );
+        }
+    })
+        .then(data => {
+            if (!Array.isArray(data.games)) {
+                throw new Error(
+                    "La API no devolvió una lista válida de partidos."
+                );
+            }
+
+            state.empates.games = data.games;
+            state.empates.loaded = true;
+            state.empates.error = false;
+            state.empates.completed = true;
+
+            dom.empates.retry.hidden = true;
+
+            renderEmpates();
+        })
+        .catch(error => {
+            console.error(
+                "Error en Radar de Empates:",
+                error
+            );
+
+            state.empates.error = true;
+            state.empates.completed = true;
+            dom.empates.retry.hidden = false;
+
+            setText(
+                dom.empates.retryTitle,
+                "No se pudieron actualizar los partidos"
+            );
+
+            setText(
+                dom.empates.retryMessage,
+                "Los grupos ya dibujados permanecen visibles. " +
+                "Se agotaron los reintentos automáticos."
+            );
+
+            setText(
+                dom.empates.countdown,
+                "—"
+            );
+
+            /*
+             * Si ya existía una matriz, no se
+             * vuelve a dibujar ni se elimina.
+             */
+            if (!state.empates.loaded) {
+                renderEmpates();
+            }
+        })
+        .finally(() => {
+            state.empates.loading = false;
+        });
+}
+
+/* =====================================================
+   ACTUALIZACIÓN DE PANTALLAS
+===================================================== */
+function refreshTeamViews() {
+    renderGoleadas();
+    renderMuro();
+    renderEmpates();
+}
+
+function refreshGameViews() {
+    if (state.selectedTeam) {
+        updateSelectedTeamGames();
+    }
+
+    renderGoleadas();
+    renderMuro();
+    renderAnalitica();
+    renderEmpates();
+}
+
+function refreshStadiumViews() {
+    if (state.selectedTeam) {
+        renderGames();
+        renderStadiumsSection();
+        renderSummarySection();
+    }
+
+    renderAnalitica();
+}
+
+/* =====================================================
+   CARGA DE EQUIPOS
+===================================================== */
+function clearTeamsRetry() {
+    if (teamsRetryTimer) {
+        clearTimeout(teamsRetryTimer);
+    }
+
+    teamsRetryTimer = null;
+}
+
+/* Reintento en segundo plano exigido en 2.2. */
+function scheduleTeamsRetry() {
+    if (
+        state.teamsRetryAttempt >=
+        TEAM_RETRIES.length
+    ) {
+        setText(
+            dom.goleadas.warningMessage,
+            "No fue posible recuperar nombres y banderas. " +
+            "Las goleadas continúan visibles utilizando IDs."
+        );
+
+        return;
+    }
+
+    const delay =
+        TEAM_RETRIES[
+            state.teamsRetryAttempt
+        ];
+
+    state.teamsRetryAttempt += 1;
+
+    setText(
+        dom.goleadas.warningMessage,
+        "Las goleadas permanecen visibles utilizando IDs. " +
+        `/get/teams se reintentará en ${delay / 1000} segundos.`
+    );
+
+    clearTeamsRetry();
+
+    teamsRetryTimer = setTimeout(() => {
+        loadTeams(true);
+    }, delay);
+}
+
+function loadTeams(
+    isBackgroundRetry = false
+) {
+    if (teamsRequestInProgress) return;
+
+    teamsRequestInProgress = true;
+
+    fetch(`${BASE}/get/teams`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(
+                    `Error HTTP ${response.status} al cargar equipos`
+                );
+            }
+
+            return response.json();
+        })
+        .then(data => {
+            if (!Array.isArray(data.teams)) {
+                throw new Error(
+                    "La API no devolvió una lista válida de equipos."
+                );
+            }
+
+            state.teams = data.teams;
+            state.loaded.teams = true;
+            state.error.teams = false;
+            state.teamsRetryAttempt = 0;
+
+            clearTeamsRetry();
+
+            saveCache(
+                CACHE.teams,
+                state.teams
+            );
+
+            markCache("teams");
+
+            populateTeamSelector();
+            refreshTeamViews();
+
+            if (isBackgroundRetry) {
+                console.log(
+                    "/get/teams se recuperó en segundo plano."
+                );
+            }
+        })
+        .catch(error => {
+            console.error(
+                "Error al cargar equipos:",
+                error
+            );
+
+            const cached =
+                readCache(CACHE.teams);
+
+            if (cached) {
+                state.teams = cached.data;
+                state.loaded.teams = true;
+                state.error.teams = false;
+
+                markCache(
+                    "teams",
+                    cached.savedAt
+                );
+
+                populateTeamSelector();
+                refreshTeamViews();
+
+                return;
+            }
+
+            state.teams = [];
+            state.loaded.teams = false;
+            state.error.teams = true;
+
+            dom.ruta.select.innerHTML = `
         <option value="">
           Equipos temporalmente no disponibles
         </option>
       `;
 
-      teamSelect.disabled = true;
+            dom.ruta.select.disabled = true;
 
-      /*
-       * La pantalla 2.2 no desaparece.
-       * Se vuelve a dibujar utilizando IDs.
-       */
-      renderGoleadas();
-      renderMuro();
-      scheduleTeamsBackgroundRetry();
-      renderEmpates();
-    })
-    .finally(() => {
-      teamsRequestInProgress = false;
-
-      if (
-        isBackgroundRetry &&
-        state.teamsLoaded
-      ) {
-        console.log(
-          "/get/teams se recuperó en segundo plano."
-        );
-      }
-    });
+            refreshTeamViews();
+            scheduleTeamsRetry();
+        })
+        .finally(() => {
+            teamsRequestInProgress = false;
+        });
 }
 
-/* ──────────────────────────────────────────────────────
-   CANCELAR REINTENTO PENDIENTE DE EQUIPOS
-────────────────────────────────────────────────────── */
-function clearTeamsBackgroundRetry() {
-  if (teamsBackgroundRetryTimer) {
-    clearTimeout(
-      teamsBackgroundRetryTimer
-    );
+/* =====================================================
+   CARGA DE PARTIDOS
+===================================================== */
+function loadGames() {
+    fetch(`${BASE}/get/games`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(
+                    `Error HTTP ${response.status} al cargar partidos`
+                );
+            }
 
-    teamsBackgroundRetryTimer = null;
-  }
+            return response.json();
+        })
+        .then(data => {
+            if (!Array.isArray(data.games)) {
+                throw new Error(
+                    "La API no devolvió una lista válida de partidos."
+                );
+            }
+
+            state.games = data.games;
+            state.loaded.games = true;
+            state.error.games = false;
+
+            syncEmpatesFromGames();
+
+            saveCache(
+                CACHE.games,
+                state.games
+            );
+
+            markCache("games");
+            refreshGameViews();
+        })
+        .catch(error => {
+            console.error(
+                "Error al cargar partidos:",
+                error
+            );
+
+            const cached =
+                readCache(CACHE.games);
+
+            if (cached) {
+                state.games = cached.data;
+                state.loaded.games = true;
+                state.error.games = false;
+
+                syncEmpatesFromGames();
+
+                markCache(
+                    "games",
+                    cached.savedAt
+                );
+
+                refreshGameViews();
+
+                return;
+            }
+
+            state.games = [];
+            state.loaded.games = false;
+            state.error.games = true;
+
+            show(dom.ruta.gamesEmpty);
+
+            setText(
+                dom.ruta.gamesEmpty,
+                "No fue posible cargar los partidos y no existen datos guardados."
+            );
+
+            refreshGameViews();
+        });
 }
 
-/* ──────────────────────────────────────────────────────
-   PROGRAMAR REINTENTO DE EQUIPOS EN SEGUNDO PLANO
-────────────────────────────────────────────────────── */
-function scheduleTeamsBackgroundRetry() {
-  if (
-    state.teamsRetryAttempt >=
-    TEAM_BACKGROUND_RETRY_DELAYS.length
-  ) {
-    if (goleadasTeamsWarningMessage) {
-      goleadasTeamsWarningMessage.textContent =
-        "No fue posible recuperar los nombres y banderas. Las goleadas continúan visibles utilizando los identificadores de los equipos.";
+/* =====================================================
+   CARGA DE GRUPOS
+===================================================== */
+function loadGroups() {
+    fetch(`${BASE}/get/groups`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(
+                    `Error HTTP ${response.status} al cargar grupos`
+                );
+            }
+
+            return response.json();
+        })
+        .then(data => {
+            const groups =
+                Array.isArray(data.groups)
+                    ? data.groups
+                    : Array.isArray(data)
+                        ? data
+                        : null;
+
+            if (!groups) {
+                throw new Error(
+                    "La API no devolvió una lista válida de grupos."
+                );
+            }
+
+            state.groups = groups;
+            state.loaded.groups = true;
+            state.error.groups = false;
+
+            renderMuro();
+        })
+        .catch(error => {
+            console.error(
+                "Error al cargar grupos:",
+                error
+            );
+
+            state.groups = [];
+            state.loaded.groups = false;
+            state.error.groups = true;
+
+            renderMuro();
+        });
+}
+
+/* =====================================================
+   CARGA DE ESTADIOS
+===================================================== */
+function loadStadiums() {
+    if (state.stadiumsLoading) return;
+
+    state.stadiumsLoading = true;
+    state.error.stadiums = false;
+
+    hideStadiumAlert();
+
+    if (dom.ruta.retryStadiums) {
+        dom.ruta.retryStadiums.disabled = true;
     }
 
-    return;
-  }
+    fetchJsonWithBackoff({
+        url: `${BASE}/get/stadiums`,
+        label: "estadios",
+        testStatus: TEST_HTTP_STATUS,
+        retryStatuses: [429, 500],
 
-  const delay =
-    TEAM_BACKGROUND_RETRY_DELAYS[
-      state.teamsRetryAttempt
-    ];
+        onRetry: ({
+            status,
+            seconds,
+            retrying
+        }) => {
+            showResilience(
+                retrying
+                    ? "Reintentando estadios"
+                    : `Error HTTP ${status} en estadios`,
 
-  state.teamsRetryAttempt += 1;
+                retrying
+                    ? "Realizando una nueva petición..."
+                    : (
+                        `Nuevo intento en ${seconds} ` +
+                        `segundo${
+                            seconds === 1 ? "" : "s"
+                        }.`
+                    )
+            );
+        }
+    })
+        .then(data => {
+            if (!Array.isArray(data.stadiums)) {
+                throw new Error(
+                    "La API no devolvió una lista válida de estadios."
+                );
+            }
 
-  console.warn(
-    "Nuevo intento de /get/teams en " +
-    `${delay / 1000} segundos.`
-  );
+            state.stadiums = data.stadiums;
+            state.loaded.stadiums = true;
+            state.error.stadiums = false;
 
-  if (goleadasTeamsWarningMessage) {
-    goleadasTeamsWarningMessage.textContent =
-      "Las goleadas permanecen visibles usando identificadores. " +
-      `/get/teams se reintentará en ${delay / 1000} segundos.`;
-  }
+            saveCache(
+                CACHE.stadiums,
+                state.stadiums
+            );
 
-  clearTeamsBackgroundRetry();
+            markCache("stadiums");
 
-  teamsBackgroundRetryTimer =
-    setTimeout(() => {
-      loadTeams(true);
-    }, delay);
+            hideResilience();
+            hideStadiumAlert();
+
+            refreshStadiumViews();
+        })
+        .catch(error => {
+            console.error(
+                "Error al cargar estadios:",
+                error
+            );
+
+            const cached =
+                readCache(CACHE.stadiums);
+
+            if (cached) {
+                state.stadiums = cached.data;
+                state.loaded.stadiums = true;
+                state.error.stadiums = false;
+
+                markCache(
+                    "stadiums",
+                    cached.savedAt
+                );
+
+                hideResilience();
+                hideStadiumAlert();
+
+                refreshStadiumViews();
+
+                return;
+            }
+
+            state.stadiums = [];
+            state.loaded.stadiums = false;
+            state.error.stadiums = true;
+
+            showResilience(
+                "No se pudieron cargar los estadios",
+                "Se agotaron los reintentos y no existen datos guardados."
+            );
+
+            showStadiumAlert(
+                "Los partidos permanecen visibles. " +
+                "Puede reintentar únicamente la carga de estadios."
+            );
+
+            refreshStadiumViews();
+        })
+        .finally(() => {
+            state.stadiumsLoading = false;
+
+            if (dom.ruta.retryStadiums) {
+                dom.ruta.retryStadiums.disabled = false;
+            }
+        });
 }
 
-/* ──────────────────────────────────────────────────────
-   CARGAR PARTIDOS
-────────────────────────────────────────────────────── */
-function loadGames() {
-  fetch(`${BASE}/get/games`)
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(
-          `Error HTTP ${response.status} al cargar partidos`
-        );
-      }
-
-      return response.json();
-    })
-    .then(jsonData => {
-      if (
-        !Array.isArray(
-          jsonData.games
-        )
-      ) {
-        throw new Error(
-          "La API no devolvió una lista válida de partidos."
-        );
-      }
-
-      state.games =
-        jsonData.games;
-
-      state.gamesLoaded = true;
-      state.gamesError = false;
-
-      if (!state.empatesGamesLoaded) {
-        state.empatesGames =
-          [...state.games];
-
-        state.empatesGamesLoaded =
-          true;
-
-        state.empatesGamesError =
-          false;
-      }
-
-      saveToCache(
-        CACHE_KEYS.games,
-        state.games
-      );
-
-      markResourceAsFresh(
-        "games"
-      );
-
-      console.log(
-        `${state.games.length} partidos cargados correctamente.`
-      );
-
-      if (state.selectedTeam) {
-        updateSelectedTeamGames();
-        renderStadiumsSection();
-        renderSummarySection();
-      }
-
-      renderGoleadas();
-      renderMuro();
-      renderAnalitica();
-      renderEmpates();
-    })
-    .catch(error => {
-      console.error(
-        "Error al cargar partidos desde la API:",
-        error
-      );
-
-      const cachedGames =
-        getFromCache(
-          CACHE_KEYS.games
-        );
-
-      if (
-        cachedGames &&
-        Array.isArray(
-          cachedGames.data
-        )
-      ) {
-        state.games =
-          cachedGames.data;
-
-        state.gamesLoaded = true;
-        state.gamesError = false;
-
-        if (!state.empatesGamesLoaded) {
-          state.empatesGames =
-            [...state.games];
-
-          state.empatesGamesLoaded =
-            true;
-
-          state.empatesGamesError =
-            false;
-        }
-
-        markResourceAsCached(
-          "games",
-          cachedGames.savedAt
-        );
-
-        console.warn(
-          "Se utilizaron partidos guardados en localStorage."
-        );
-
-        if (state.selectedTeam) {
-          updateSelectedTeamGames();
-          renderStadiumsSection();
-          renderSummarySection();
-        }
-
-        renderGoleadas();
-        renderMuro();
-        renderAnalitica();
-        renderEmpates();
-        return;
-      }
-
-      state.games = [];
-      state.gamesLoaded = false;
-      state.gamesError = true;
-
-      gamesEmptyState.style.display =
-        "block";
-
-      gamesEmptyState.textContent =
-        "No fue posible cargar los partidos y no existen datos guardados.";
-
-      renderGoleadas();
-      renderMuro();
-      renderAnalitica();
-      renderEmpates();
-    });
-}
-
-/* ──────────────────────────────────────────────────────
-   CARGAR ESTADIOS
-────────────────────────────────────────────────────── */
-function loadStadiums() {
-  if (state.stadiumsLoading) {
-    return;
-  }
-
-  state.stadiumsLoading = true;
-  state.stadiumsError = false;
-
-  hideStadiumAlert();
-
-  if (retryStadiumsButton) {
-    retryStadiumsButton.disabled =
-      true;
-  }
-
-  fetchJsonWithRetry(
-    "/get/stadiums",
-    "estadios"
-  )
-    .then(jsonData => {
-      if (
-        !Array.isArray(
-          jsonData.stadiums
-        )
-      ) {
-        throw new Error(
-          "La API no devolvió una lista válida de estadios."
-        );
-      }
-
-      state.stadiums =
-        jsonData.stadiums;
-
-      state.stadiumsLoaded =
-        true;
-
-      state.stadiumsError =
-        false;
-
-      saveToCache(
-        CACHE_KEYS.stadiums,
-        state.stadiums
-      );
-
-      markResourceAsFresh(
-        "stadiums"
-      );
-
-      hideResilienceBanner();
-      hideStadiumAlert();
-
-      console.log(
-        `${state.stadiums.length} estadios cargados correctamente.`
-      );
-
-      if (state.selectedTeam) {
-        renderGames();
-        renderStadiumsSection();
-        renderSummarySection();
-      }
-
-      renderAnalitica();
-    })
-    .catch(error => {
-      console.error(
-        "Error al cargar estadios desde la API:",
-        error
-      );
-
-      const cachedStadiums =
-        getFromCache(
-          CACHE_KEYS.stadiums
-        );
-
-      if (cachedStadiums) {
-        state.stadiums =
-          cachedStadiums.data;
-
-        state.stadiumsLoaded =
-          true;
-
-        state.stadiumsError =
-          false;
-
-        markResourceAsCached(
-          "stadiums",
-          cachedStadiums.savedAt
-        );
-
-        hideResilienceBanner();
-        hideStadiumAlert();
-
-        console.warn(
-          "Se utilizaron estadios guardados en localStorage."
-        );
-
-        if (state.selectedTeam) {
-          renderGames();
-          renderStadiumsSection();
-          renderSummarySection();
-        }
-
-        renderAnalitica();
-        return;
-      }
-
-      state.stadiums = [];
-
-      state.stadiumsLoaded =
-        false;
-
-      state.stadiumsError =
-        true;
-
-      showResilienceBanner(
-        "No se pudieron cargar los estadios",
-        "Se agotaron los reintentos y no existen datos guardados."
-      );
-
-      showStadiumAlert(
-        "Los partidos permanecen visibles. " +
-        "Puede reintentar únicamente la carga de estadios."
-      );
-
-      if (state.selectedTeam) {
-        renderGames();
-        renderStadiumsSection();
-        renderSummarySection();
-      }
-
-      renderAnalitica();
-    })
-    .finally(() => {
-      state.stadiumsLoading =
-        false;
-
-      if (retryStadiumsButton) {
-        retryStadiumsButton.disabled =
-          false;
-      }
-    });
-}
-
-/* ──────────────────────────────────────────────────────
+/* =====================================================
    INICIALIZACIÓN
-────────────────────────────────────────────────────── */
+===================================================== */
 function init() {
-  configureScreenNavigation();
-  configureInternalNavigation();
-  addEventToTeamSelect();
-  clearSelectedTeam();
+    configureNavigation();
+    clearSelectedTeam();
 
-  showScreen(
-    "ruta",
-    false
-  );
+    showScreen("ruta", false);
 
-  loadTeams();
-  loadGames();
-  loadGroups();
-  loadStadiums();
+    loadTeams();
+    loadGames();
+    loadGroups();
+    loadStadiums();
 
-  setApiStatus(
-    "API worldcup26.ir"
-  );
+    setText(
+        dom.apiStatus,
+        "API worldcup26.ir"
+    );
 }
 
-/* Punto de entrada */
 init();

@@ -13,6 +13,33 @@ const BASE = "https://worldcup26.ir";
  */
 const TEST_HTTP_STATUS = null;
 
+const RETRY_DELAYS = [
+  1000,
+  2000,
+  4000,
+  8000
+];
+
+const CACHE_KEYS = {
+  teams: "worldcup26_teams",
+  games: "worldcup26_games",
+  stadiums: "worldcup26_stadiums"
+};
+
+/*
+ * Reintentos en segundo plano para /get/teams.
+ * Estos reintentos pertenecen al reto del punto 2.2.
+ */
+const TEAM_BACKGROUND_RETRY_DELAYS = [
+  2000,
+  4000,
+  8000,
+  16000
+];
+
+let teamsBackgroundRetryTimer = null;
+let teamsRequestInProgress = false;
+
 /* ──────────────────────────────────────────────────────
    ESTADO DE LA APLICACIÓN
 ────────────────────────────────────────────────────── */
@@ -20,13 +47,21 @@ const state = {
   teams: [],
   games: [],
   stadiums: [],
+  goleadas: [],
 
   selectedTeam: null,
   selectedGames: [],
 
+  teamsLoaded: false,
+  teamsError: false,
+  teamsRetryAttempt: 0,
+
   gamesLoaded: false,
+  gamesError: false,
+
   stadiumsLoaded: false,
   stadiumsError: false,
+  stadiumsLoading: false,
 
   cacheSources: {
     teams: null,
@@ -38,75 +73,164 @@ const state = {
 /* ──────────────────────────────────────────────────────
    SELECTORES DEL DOM
 ────────────────────────────────────────────────────── */
-const teamSelect = document.getElementById("teamSelect");
-const teamInfo = document.getElementById("teamInfo");
-const teamFlagImg = document.getElementById("teamFlagImg");
-const teamName = document.getElementById("teamName");
+const teamSelectionSection =
+  document.getElementById("teamSelectionSection");
 
-const cardsGrid = document.getElementById("cardsGrid");
-const sectionEyebrow = document.getElementById("sectionEyebrow");
-const eyebrowCount = document.getElementById("eyebrowCount");
-const gamesEmptyState = document.getElementById("gamesEmptyState");
+const teamSelect =
+  document.getElementById("teamSelect");
 
-const stadiumsEmptyState = document.getElementById("stadiumsEmptyState");
-const stadiumsGrid = document.getElementById("stadiumsGrid");
-const citiesChips = document.getElementById("citiesChips");
-const alertBanner = document.getElementById("alertBanner");
-const alertMsg = document.getElementById("alertMsg");
+const teamInfo =
+  document.getElementById("teamInfo");
 
-const statsBar = document.getElementById("statsBar");
-const citiesSection = document.getElementById("citiesSection");
-const apiStatus = document.getElementById("apiStatus");
+const teamFlagImg =
+  document.getElementById("teamFlagImg");
 
-const screenButtons = document.querySelectorAll("[data-screen]");
-const screenPanels = document.querySelectorAll("[data-screen-panel]");
-const startButton = document.getElementById("startButton");
+const teamName =
+  document.getElementById("teamName");
+
+const cardsGrid =
+  document.getElementById("cardsGrid");
+
+const sectionEyebrow =
+  document.getElementById("sectionEyebrow");
+
+const eyebrowCount =
+  document.getElementById("eyebrowCount");
+
+const gamesEmptyState =
+  document.getElementById("gamesEmptyState");
+
+const stadiumsEmptyState =
+  document.getElementById("stadiumsEmptyState");
+
+const stadiumsGrid =
+  document.getElementById("stadiumsGrid");
+
+const citiesSection =
+  document.getElementById("citiesSection");
+
+const citiesChips =
+  document.getElementById("citiesChips");
+
+const alertBanner =
+  document.getElementById("alertBanner");
+
+const alertMsg =
+  document.getElementById("alertMsg");
+
+const retryStadiumsButton =
+  document.getElementById("retryStadiumsButton");
+
+const statsBar =
+  document.getElementById("statsBar");
+
+const summaryEmptyState =
+  document.getElementById("summaryEmptyState");
+
+const statGames =
+  document.getElementById("statGames");
+
+const statCities =
+  document.getElementById("statCities");
+
+const statHome =
+  document.getElementById("statHome");
+
+const statAway =
+  document.getElementById("statAway");
+
+const statStadiums =
+  document.getElementById("statStadiums");
+
+const statCapacity =
+  document.getElementById("statCapacity");
+
+const apiStatus =
+  document.getElementById("apiStatus");
+
+const startButton =
+  document.getElementById("startButton");
+
+const resilienceBanner =
+  document.getElementById("resilienceBanner");
+
+const resilienceTitle =
+  document.getElementById("resilienceTitle");
+
+const resilienceMessage =
+  document.getElementById("resilienceMessage");
+
+const offlineBanner =
+  document.getElementById("offlineBanner");
+
+const offlineMessage =
+  document.getElementById("offlineMessage");
 
 /* ──────────────────────────────────────────────────────
-   SELECTORES DEL BANNER DE RESILIENCIA
+   NAVEGACIÓN ENTRE PANTALLAS
 ────────────────────────────────────────────────────── */
-const resilienceBanner = document.getElementById("resilienceBanner");
-const resilienceTitle = document.getElementById("resilienceTitle");
-const resilienceMessage = document.getElementById("resilienceMessage");
+const screenNavButtons =
+  document.querySelectorAll("[data-screen]");
+
+const screenPanels =
+  document.querySelectorAll("[data-screen-panel]");
 
 /* ──────────────────────────────────────────────────────
-   SELECTORES DEL AVISO DE DATOS GUARDADOS
+   SELECTORES DE LA PANTALLA 2.2
 ────────────────────────────────────────────────────── */
-const offlineBanner = document.getElementById("offlineBanner");
-const offlineMessage = document.getElementById("offlineMessage");
+const goleadasTotal =
+  document.getElementById("goleadasTotal");
+
+const goleadasTeamsWarning =
+  document.getElementById("goleadasTeamsWarning");
+
+const goleadasTeamsWarningMessage =
+  document.getElementById(
+    "goleadasTeamsWarningMessage"
+  );
+
+const goleadasEmptyState =
+  document.getElementById("goleadasEmptyState");
+
+const goleadasEyebrow =
+  document.getElementById("goleadasEyebrow");
+
+const goleadasCount =
+  document.getElementById("goleadasCount");
+
+const goleadasGrid =
+  document.getElementById("goleadasGrid");
 
 /* ──────────────────────────────────────────────────────
-   SELECTORES DE LA PANTALLA 5: RESUMEN
+   UTILIDADES DE ESTADO VISUAL
 ────────────────────────────────────────────────────── */
-const summaryEmptyState = document.getElementById("summaryEmptyState");
-const statGames = document.getElementById("statGames");
-const statCities = document.getElementById("statCities");
-const statHome = document.getElementById("statHome");
-const statAway = document.getElementById("statAway");
-const statStadiums = document.getElementById("statStadiums");
-const statCapacity = document.getElementById("statCapacity");
+function setApiStatus(message) {
+  if (apiStatus) {
+    apiStatus.textContent = message;
+  }
+}
+
+function showResilienceBanner(title, message) {
+  resilienceTitle.textContent = title;
+  resilienceMessage.textContent = message;
+  resilienceBanner.hidden = false;
+}
+
+function hideResilienceBanner() {
+  resilienceBanner.hidden = true;
+}
+
+function showStadiumAlert(message) {
+  alertMsg.textContent = message;
+  alertBanner.hidden = false;
+}
+
+function hideStadiumAlert() {
+  alertBanner.hidden = true;
+}
 
 /* ──────────────────────────────────────────────────────
-   CONFIGURACIÓN DE REINTENTOS
-────────────────────────────────────────────────────── */
-const RETRY_DELAYS = [
-  1000,
-  2000,
-  4000,
-  8000
-];
-
-/* ──────────────────────────────────────────────────────
-   CLAVES DE LOCALSTORAGE
-────────────────────────────────────────────────────── */
-const CACHE_KEYS = {
-  teams: "worldcup26_teams",
-  games: "worldcup26_games",
-  stadiums: "worldcup26_stadiums"
-};
-
-/* ──────────────────────────────────────────────────────
-   GUARDAR UNA RESPUESTA EXITOSA
+   GUARDAR DATOS EN LOCALSTORAGE
 ────────────────────────────────────────────────────── */
 function saveToCache(cacheKey, data) {
   const cacheData = {
@@ -123,7 +247,7 @@ function saveToCache(cacheKey, data) {
     return true;
   } catch (error) {
     console.warn(
-      `No fue posible guardar ${cacheKey} en localStorage:`,
+      `No fue posible guardar ${cacheKey}:`,
       error
     );
 
@@ -132,7 +256,7 @@ function saveToCache(cacheKey, data) {
 }
 
 /* ──────────────────────────────────────────────────────
-   RECUPERAR DATOS GUARDADOS
+   LEER DATOS DE LOCALSTORAGE
 ────────────────────────────────────────────────────── */
 function getFromCache(cacheKey) {
   try {
@@ -157,7 +281,7 @@ function getFromCache(cacheKey) {
     return parsedValue;
   } catch (error) {
     console.warn(
-      `No fue posible leer ${cacheKey} desde localStorage:`,
+      `No fue posible leer ${cacheKey}:`,
       error
     );
 
@@ -166,7 +290,7 @@ function getFromCache(cacheKey) {
 }
 
 /* ──────────────────────────────────────────────────────
-   FORMATEAR LA FECHA DE LOS DATOS GUARDADOS
+   FORMATEAR FECHA DEL RESPALDO
 ────────────────────────────────────────────────────── */
 function formatCacheDate(savedAt) {
   const date = new Date(savedAt);
@@ -182,10 +306,10 @@ function formatCacheDate(savedAt) {
 }
 
 /* ──────────────────────────────────────────────────────
-   ACTUALIZAR EL AVISO DE DATOS GUARDADOS
+   ACTUALIZAR AVISO DE DATOS GUARDADOS
 ────────────────────────────────────────────────────── */
 function updateOfflineBanner() {
-  const resourceLabels = {
+  const labels = {
     teams: "equipos",
     games: "partidos",
     stadiums: "estadios"
@@ -196,7 +320,7 @@ function updateOfflineBanner() {
       .filter(([, savedAt]) => savedAt)
       .map(([resourceName, savedAt]) => {
         return (
-          `${resourceLabels[resourceName]} ` +
+          `${labels[resourceName]} ` +
           `(${formatCacheDate(savedAt)})`
         );
       });
@@ -214,7 +338,10 @@ function updateOfflineBanner() {
   offlineBanner.hidden = false;
 }
 
-function markResourceAsCached(resourceName, savedAt) {
+function markResourceAsCached(
+  resourceName,
+  savedAt
+) {
   state.cacheSources[resourceName] = savedAt;
   updateOfflineBanner();
 }
@@ -225,22 +352,13 @@ function markResourceAsFresh(resourceName) {
 }
 
 /* ──────────────────────────────────────────────────────
-   MOSTRAR Y OCULTAR EL BANNER
+   COUNTDOWN DE REINTENTOS
 ────────────────────────────────────────────────────── */
-function showResilienceBanner(title, message) {
-  resilienceTitle.textContent = title;
-  resilienceMessage.textContent = message;
-  resilienceBanner.hidden = false;
-}
-
-function hideResilienceBanner() {
-  resilienceBanner.hidden = true;
-}
-
-/* ──────────────────────────────────────────────────────
-   COUNTDOWN VISIBLE
-────────────────────────────────────────────────────── */
-function runRetryCountdown(seconds, endpointName, statusCode) {
+function runRetryCountdown(
+  seconds,
+  endpointName,
+  statusCode
+) {
   return new Promise(resolve => {
     let remainingSeconds = seconds;
 
@@ -255,23 +373,24 @@ function runRetryCountdown(seconds, endpointName, statusCode) {
 
     updateMessage();
 
-    const countdownInterval = setInterval(() => {
-      remainingSeconds -= 1;
+    const countdownInterval =
+      setInterval(() => {
+        remainingSeconds -= 1;
 
-      if (remainingSeconds <= 0) {
-        clearInterval(countdownInterval);
+        if (remainingSeconds <= 0) {
+          clearInterval(countdownInterval);
 
-        showResilienceBanner(
-          `Reintentando ${endpointName}`,
-          "Realizando una nueva petición..."
-        );
+          showResilienceBanner(
+            `Reintentando ${endpointName}`,
+            "Realizando una nueva petición..."
+          );
 
-        resolve();
-        return;
-      }
+          resolve();
+          return;
+        }
 
-      updateMessage();
-    }, 1000);
+        updateMessage();
+      }, 1000);
   });
 }
 
@@ -283,8 +402,9 @@ function fetchJsonWithRetry(
   endpointName,
   attempt = 0
 ) {
-    const requestUrl =
-    TEST_HTTP_STATUS === 429 || TEST_HTTP_STATUS === 500
+  const requestUrl =
+    TEST_HTTP_STATUS === 429 ||
+    TEST_HTTP_STATUS === 500
       ? `http://localhost:3001/status/${TEST_HTTP_STATUS}`
       : `${BASE}${endpoint}`;
 
@@ -313,7 +433,9 @@ function fetchJsonWithRetry(
       }
 
       const retryAfterHeader =
-        Number(response.headers.get("Retry-After"));
+        Number(
+          response.headers.get("Retry-After")
+        );
 
       const delayMilliseconds =
         response.status === 429 &&
@@ -323,7 +445,9 @@ function fetchJsonWithRetry(
           : RETRY_DELAYS[attempt];
 
       const delaySeconds =
-        Math.ceil(delayMilliseconds / 1000);
+        Math.ceil(
+          delayMilliseconds / 1000
+        );
 
       console.warn(
         `${endpointName} devolvió HTTP ${response.status}. ` +
@@ -334,90 +458,175 @@ function fetchJsonWithRetry(
         delaySeconds,
         endpointName,
         response.status
-      ).then(() =>
-        fetchJsonWithRetry(
+      ).then(() => {
+        return fetchJsonWithRetry(
           endpoint,
           endpointName,
           attempt + 1
-        )
-      );
+        );
+      });
     });
 }
 
 /* ──────────────────────────────────────────────────────
-   NAVEGACIÓN ENTRE LAS CINCO PANTALLAS
+   NAVEGACIÓN INTERNA DE LA RUTA DEL CAMPEÓN
 ────────────────────────────────────────────────────── */
-function showScreen(screenName) {
-  screenPanels.forEach(panel => {
-    const isSelected =
-      panel.dataset.screenPanel === screenName;
+function configureInternalNavigation() {
+  if (
+    startButton &&
+    teamSelectionSection
+  ) {
+    startButton.addEventListener(
+      "click",
+      () => {
+        teamSelectionSection.scrollIntoView({
+          behavior: "smooth",
+          block: "start"
+        });
 
-    panel.classList.toggle("active", isSelected);
-    panel.hidden = !isSelected;
-  });
+        window.setTimeout(() => {
+          teamSelect.focus();
+        }, 500);
+      }
+    );
+  }
 
-  screenButtons.forEach(button => {
-    const isSelected =
-      button.dataset.screen === screenName;
-
-    button.classList.toggle("active", isSelected);
-  });
-
-  window.scrollTo({
-    top: 0,
-    behavior: "smooth"
-  });
+  if (retryStadiumsButton) {
+    retryStadiumsButton.addEventListener(
+      "click",
+      () => {
+        loadStadiums();
+      }
+    );
+  }
 }
 
-function configureScreenNavigation() {
-  screenButtons.forEach(button => {
-    button.addEventListener("click", () => {
-      showScreen(button.dataset.screen);
-    });
+/* ──────────────────────────────────────────────────────
+   MOSTRAR UNA PANTALLA DEL LABORATORIO
+────────────────────────────────────────────────────── */
+function showScreen(
+  screenName,
+  moveToTop = true
+) {
+  screenPanels.forEach(panel => {
+    const isActive =
+      panel.dataset.screenPanel ===
+      screenName;
+
+    panel.classList.toggle(
+      "active",
+      isActive
+    );
+
+    panel.hidden = !isActive;
   });
 
-  if (startButton) {
-    startButton.addEventListener("click", () => {
-      showScreen("equipo");
+  screenNavButtons.forEach(button => {
+    const isActive =
+      button.dataset.screen ===
+      screenName;
+
+    button.classList.toggle(
+      "active",
+      isActive
+    );
+
+    if (isActive) {
+      button.setAttribute(
+        "aria-current",
+        "page"
+      );
+    } else {
+      button.removeAttribute(
+        "aria-current"
+      );
+    }
+  });
+
+  if (screenName === "goleadas") {
+    renderGoleadas();
+  }
+
+  if (moveToTop) {
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth"
     });
   }
 }
 
 /* ──────────────────────────────────────────────────────
-   BÚSQUEDA DE EQUIPOS
+   CONFIGURAR BOTONES DE NAVEGACIÓN
+────────────────────────────────────────────────────── */
+function configureScreenNavigation() {
+  screenNavButtons.forEach(button => {
+    button.addEventListener(
+      "click",
+      () => {
+        if (button.disabled) {
+          return;
+        }
+
+        showScreen(
+          button.dataset.screen
+        );
+      }
+    );
+  });
+}
+
+/* ──────────────────────────────────────────────────────
+   BUSCAR EQUIPO POR ID
 ────────────────────────────────────────────────────── */
 function getTeamById(teamId) {
   return state.teams.find(
-    team => String(team.id) === String(teamId)
+    team =>
+      String(team.id) ===
+      String(teamId)
   );
 }
 
 /* ──────────────────────────────────────────────────────
-   BÚSQUEDA DE ESTADIOS
+   BUSCAR ESTADIO POR ID
 ────────────────────────────────────────────────────── */
 function getStadiumById(stadiumId) {
   return state.stadiums.find(
-    stadium => String(stadium.id) === String(stadiumId)
+    stadium =>
+      String(stadium.id) ===
+      String(stadiumId)
   );
 }
 
 /* ──────────────────────────────────────────────────────
-   CONVERSIÓN DE FECHAS
-   La API utiliza el formato MM/DD/YYYY HH:mm.
+   CONVERTIR FECHA DE LA API
 ────────────────────────────────────────────────────── */
 function parseLocalDate(localDate) {
-  if (!localDate || typeof localDate !== "string") {
+  if (
+    !localDate ||
+    typeof localDate !== "string"
+  ) {
     return new Date(NaN);
   }
 
-  const [datePart, timePart = "00:00"] =
-    localDate.trim().split(" ");
+  const [
+    datePart,
+    timePart = "00:00"
+  ] = localDate.trim().split(" ");
 
-  const [month, day, year] =
-    datePart.split("/").map(Number);
+  const [
+    month,
+    day,
+    year
+  ] = datePart
+    .split("/")
+    .map(Number);
 
-  const [hour, minute] =
-    timePart.split(":").map(Number);
+  const [
+    hour,
+    minute
+  ] = timePart
+    .split(":")
+    .map(Number);
 
   return new Date(
     year,
@@ -428,160 +637,39 @@ function parseLocalDate(localDate) {
   );
 }
 
+/* ──────────────────────────────────────────────────────
+   FORMATEAR FECHA PARA MOSTRARLA
+────────────────────────────────────────────────────── */
 function formatLocalDate(localDate) {
-  const date = parseLocalDate(localDate);
+  const date =
+    parseLocalDate(localDate);
 
   if (Number.isNaN(date.getTime())) {
-    return localDate || "Fecha no disponible";
+    return (
+      localDate ||
+      "Fecha no disponible"
+    );
   }
 
-  return new Intl.DateTimeFormat("es-CR", {
-    dateStyle: "long",
-    timeStyle: "short"
-  }).format(date);
+  return new Intl.DateTimeFormat(
+    "es-CR",
+    {
+      dateStyle: "long",
+      timeStyle: "short"
+    }
+  ).format(date);
 }
 
 /* ──────────────────────────────────────────────────────
-   POBLAR EL SELECTOR DE EQUIPOS
-────────────────────────────────────────────────────── */
-function populateTeamSelector() {
-  const sortedTeamList = [...state.teams].sort((a, b) => {
-    const nameA = a.name_en ?? "";
-    const nameB = b.name_en ?? "";
-
-    return nameA.localeCompare(nameB);
-  });
-
-  teamSelect.innerHTML =
-    `<option value="">
-      — Selecciona un equipo (${sortedTeamList.length}) —
-    </option>`;
-
-  sortedTeamList.forEach(team => {
-    const option = document.createElement("option");
-
-    option.value = String(team.id);
-    option.textContent =
-      team.name_en ?? `Equipo ${team.id}`;
-
-    teamSelect.appendChild(option);
-  });
-
-  teamSelect.disabled = false;
-}
-
-/* ──────────────────────────────────────────────────────
-   MOSTRAR EL EQUIPO SELECCIONADO
-────────────────────────────────────────────────────── */
-function renderSelectedTeam(team) {
-  teamFlagImg.src = team.flag;
-  teamFlagImg.alt =
-    `Bandera de ${team.name_en}`;
-
-  teamName.textContent =
-    team.name_en ?? `Equipo ${team.id}`;
-
-  teamInfo.style.display = "flex";
-}
-
-/* ──────────────────────────────────────────────────────
-   LIMPIAR LA SELECCIÓN
-────────────────────────────────────────────────────── */
-function clearSelectedTeam() {
-  state.selectedTeam = null;
-  state.selectedGames = [];
-
-  teamInfo.style.display = "none";
-
-  cardsGrid.innerHTML = "";
-  eyebrowCount.textContent = "0";
-  sectionEyebrow.classList.remove("visible");
-
-  gamesEmptyState.style.display = "block";
-  gamesEmptyState.textContent =
-    "Seleccione primero un equipo para consultar su itinerario.";
-
-  stadiumsGrid.innerHTML = "";
-  citiesChips.innerHTML = "";
-
-  citiesSection.style.display = "none";
-  alertBanner.style.display = "none";
-
-  stadiumsEmptyState.style.display = "block";
-  stadiumsEmptyState.textContent =
-    "Seleccione un equipo para consultar las ciudades y los estadios de su itinerario.";
-
-  statsBar.style.display = "none";
-
-  summaryEmptyState.style.display = "block";
-  summaryEmptyState.textContent =
-    "Seleccione un equipo para generar el resumen.";
-
-  statGames.textContent = "—";
-  statCities.textContent = "—";
-  statHome.textContent = "—";
-  statAway.textContent = "—";
-  statStadiums.textContent = "—";
-  statCapacity.textContent = "—";
-
-  }
-
-/* ──────────────────────────────────────────────────────
-   FILTRAR Y ORDENAR LOS PARTIDOS DEL EQUIPO
-────────────────────────────────────────────────────── */
-function updateSelectedTeamGames() {
-  if (!state.selectedTeam) {
-    return;
-  }
-
-  if (!state.gamesLoaded) {
-    gamesEmptyState.style.display = "block";
-    gamesEmptyState.textContent =
-      "Los partidos todavía se están cargando.";
-
-    return;
-  }
-
-  const selectedTeamId =
-    String(state.selectedTeam.id);
-
-  state.selectedGames = state.games
-    .filter(game => {
-      const homeTeamId =
-        String(game.home_team_id);
-
-      const awayTeamId =
-        String(game.away_team_id);
-
-      return (
-        homeTeamId === selectedTeamId ||
-        awayTeamId === selectedTeamId
-      );
-    })
-    .sort((gameA, gameB) => {
-      const dateA =
-        parseLocalDate(gameA.local_date);
-
-      const dateB =
-        parseLocalDate(gameB.local_date);
-
-      return dateA - dateB;
-    });
-
-  renderGames();
-}
-
-/* ──────────────────────────────────────────────────────
-   OBTENER LA FASE DEL PARTIDO
+   IDENTIFICAR LA FASE DEL PARTIDO
 ────────────────────────────────────────────────────── */
 function getMatchPhase(game) {
-  const phaseCode = String(game.group ?? "")
-    .trim()
-    .toUpperCase();
+  const phaseCode =
+    String(game.group ?? "")
+      .trim()
+      .toUpperCase();
 
-  const isGroupStage = /^[A-L]$/.test(phaseCode);
-
-  if (isGroupStage) {
+  if (/^[A-L]$/.test(phaseCode)) {
     return {
       text: `Grupo ${phaseCode}`,
       showMatchday: true
@@ -598,33 +686,595 @@ function getMatchPhase(game) {
   };
 
   return {
-    text: knockoutPhases[phaseCode] ?? "Fase eliminatoria",
+    text:
+      knockoutPhases[phaseCode] ??
+      "Fase eliminatoria",
+
     showMatchday: false
   };
 }
 
+/* ═══════════════════════════════════════════════════════
+   PANTALLA 2.2: RASTREADOR DE GOLEADAS
+═══════════════════════════════════════════════════════ */
+
+/* Determina si un partido ya terminó */
+function isFinishedGame(game) {
+  if (game.finished === true) {
+    return true;
+  }
+
+  const finishedValue =
+    String(game.finished ?? "")
+      .trim()
+      .toUpperCase();
+
+  return (
+    finishedValue === "TRUE" ||
+    finishedValue === "FINISHED"
+  );
+}
+
+/* Convierte un marcador a número */
+function parseGameScore(score) {
+  if (
+    score === null ||
+    score === undefined ||
+    score === ""
+  ) {
+    return null;
+  }
+
+  const numericScore =
+    Number(score);
+
+  return Number.isFinite(
+    numericScore
+  )
+    ? numericScore
+    : null;
+}
+
+/* Obtiene los datos visibles de un equipo */
+function getGoleadaTeamData(
+  teamId,
+  apiFallbackName
+) {
+  const team =
+    getTeamById(teamId);
+
+  if (state.teamsLoaded && team) {
+    return {
+      id: teamId,
+      name:
+        team.name_en ??
+        `Equipo ID ${teamId}`,
+      flag: team.flag ?? "",
+      dataAvailable: true
+    };
+  }
+
+  /*
+   * Si /get/teams todavía no está disponible,
+   * se debe mostrar el identificador.
+   */
+  if (!state.teamsLoaded) {
+    return {
+      id: teamId,
+      name: `Equipo ID ${teamId}`,
+      flag: "",
+      dataAvailable: false
+    };
+  }
+
+  return {
+    id: teamId,
+    name:
+      apiFallbackName ??
+      `Equipo ID ${teamId}`,
+    flag: "",
+    dataAvailable: false
+  };
+}
+
+/* Calcula y ordena todas las goleadas */
+function calculateGoleadas() {
+  state.goleadas =
+    state.games
+      .filter(game => {
+        return isFinishedGame(game);
+      })
+      .map(game => {
+        const homeScore =
+          parseGameScore(
+            game.home_score
+          );
+
+        const awayScore =
+          parseGameScore(
+            game.away_score
+          );
+
+        if (
+          homeScore === null ||
+          awayScore === null
+        ) {
+          return null;
+        }
+
+        return {
+          game,
+          homeScore,
+          awayScore,
+          difference: Math.abs(
+            homeScore - awayScore
+          )
+        };
+      })
+      .filter(result => {
+        return (
+          result !== null &&
+          result.difference >= 3
+        );
+      })
+      .sort((resultA, resultB) => {
+        const differenceOrder =
+          resultB.difference -
+          resultA.difference;
+
+        if (differenceOrder !== 0) {
+          return differenceOrder;
+        }
+
+        return (
+          Number(resultA.game.id || 0) -
+          Number(resultB.game.id || 0)
+        );
+      });
+
+  return state.goleadas;
+}
+
+/* Crea el elemento visual de una bandera */
+function createGoleadaFlagMarkup(team) {
+  if (team.flag) {
+    return `
+      <img
+        src="${team.flag}"
+        alt="Bandera de ${team.name}"
+        loading="lazy"
+      >
+    `;
+  }
+
+  return `
+    <span
+      class="goleada-flag-placeholder"
+      aria-label="Bandera no disponible"
+    >
+      ID
+    </span>
+  `;
+}
+
+/* Crea una tarjeta de goleada */
+function createGoleadaCard(result) {
+  const {
+    game,
+    homeScore,
+    awayScore,
+    difference
+  } = result;
+
+  const homeTeam =
+    getGoleadaTeamData(
+      game.home_team_id,
+      game.home_team_name_en
+    );
+
+  const awayTeam =
+    getGoleadaTeamData(
+      game.away_team_id,
+      game.away_team_name_en
+    );
+
+  const homeIsWinner =
+    homeScore > awayScore;
+
+  const awayIsWinner =
+    awayScore > homeScore;
+
+  const matchPhase =
+    getMatchPhase(game);
+
+  const card =
+    document.createElement(
+      "article"
+    );
+
+  card.className =
+    "goleada-card";
+
+  card.innerHTML = `
+    <div class="goleada-card-top">
+      <div>
+        <span class="goleada-phase">
+          ${matchPhase.text}
+        </span>
+
+        <p class="goleada-date">
+          ${formatLocalDate(game.local_date)}
+        </p>
+      </div>
+
+      <span class="goleada-difference">
+        Diferencia: ${difference}
+      </span>
+    </div>
+
+    <div class="goleada-match">
+
+      <div class="goleada-team ${
+        homeIsWinner ? "winner" : ""
+      }">
+        <div class="goleada-flag">
+          ${createGoleadaFlagMarkup(homeTeam)}
+        </div>
+
+        <span class="goleada-team-role">
+          Local
+        </span>
+
+        <strong>
+          ${homeTeam.name}
+        </strong>
+      </div>
+
+      <div class="goleada-score">
+        <span>
+          ${homeScore}
+        </span>
+
+        <small>
+          —
+        </small>
+
+        <span>
+          ${awayScore}
+        </span>
+      </div>
+
+      <div class="goleada-team ${
+        awayIsWinner ? "winner" : ""
+      }">
+        <div class="goleada-flag">
+          ${createGoleadaFlagMarkup(awayTeam)}
+        </div>
+
+        <span class="goleada-team-role">
+          Visitante
+        </span>
+
+        <strong>
+          ${awayTeam.name}
+        </strong>
+      </div>
+
+    </div>
+  `;
+
+  return card;
+}
+
+/* Muestra las goleadas en la pantalla */
+function renderGoleadas() {
+  if (
+    !goleadasGrid ||
+    !goleadasEmptyState
+  ) {
+    return;
+  }
+
+  goleadasGrid.innerHTML = "";
+
+  goleadasTotal.textContent = "0";
+  goleadasCount.textContent = "0";
+
+  goleadasEyebrow.classList.remove(
+    "visible"
+  );
+
+  if (!state.gamesLoaded) {
+    goleadasEmptyState.style.display =
+      "block";
+
+    goleadasEmptyState.textContent =
+      state.gamesError
+        ? "No fue posible cargar los partidos."
+        : "Cargando los partidos terminados...";
+
+    return;
+  }
+
+  const results =
+    calculateGoleadas();
+
+  const teamsUnavailable =
+    !state.teamsLoaded;
+
+  goleadasTeamsWarning.hidden =
+    !teamsUnavailable;
+
+  if (teamsUnavailable) {
+    goleadasTeamsWarningMessage.textContent =
+      "Las goleadas permanecen visibles usando los identificadores de los equipos. /get/teams se reintentará automáticamente en segundo plano.";
+  }
+
+  goleadasTotal.textContent =
+    String(results.length);
+
+  goleadasCount.textContent =
+    String(results.length);
+
+  if (results.length === 0) {
+    goleadasEmptyState.style.display =
+      "block";
+
+    goleadasEmptyState.textContent =
+      "No se encontraron partidos terminados con una diferencia de tres o más goles.";
+
+    return;
+  }
+
+  goleadasEmptyState.style.display =
+    "none";
+
+  goleadasEyebrow.classList.add(
+    "visible"
+  );
+
+  results.forEach(result => {
+    goleadasGrid.appendChild(
+      createGoleadaCard(result)
+    );
+  });
+}
+
 /* ──────────────────────────────────────────────────────
-   CREAR UNA TARJETA DE PARTIDO
+   POBLAR SELECTOR DE EQUIPOS
+────────────────────────────────────────────────────── */
+function populateTeamSelector() {
+  const sortedTeams =
+    [...state.teams].sort(
+      (teamA, teamB) => {
+        return (
+          teamA.name_en ?? ""
+        ).localeCompare(
+          teamB.name_en ?? ""
+        );
+      }
+    );
+
+  teamSelect.innerHTML =
+    `<option value="">` +
+    `— Selecciona un equipo (${sortedTeams.length}) —` +
+    `</option>`;
+
+  sortedTeams.forEach(team => {
+    const option =
+      document.createElement("option");
+
+    option.value =
+      String(team.id);
+
+    option.textContent =
+      team.name_en ??
+      `Equipo ${team.id}`;
+
+    teamSelect.appendChild(option);
+  });
+
+  teamSelect.disabled = false;
+}
+
+/* ──────────────────────────────────────────────────────
+   MOSTRAR EQUIPO SELECCIONADO
+────────────────────────────────────────────────────── */
+function renderSelectedTeam(team) {
+  teamFlagImg.src =
+    team.flag;
+
+  teamFlagImg.alt =
+    `Bandera de ${team.name_en}`;
+
+  teamName.textContent =
+    team.name_en ??
+    `Equipo ${team.id}`;
+
+  teamInfo.style.display = "flex";
+}
+
+/* ──────────────────────────────────────────────────────
+   LIMPIAR EQUIPO SELECCIONADO
+────────────────────────────────────────────────────── */
+function clearSelectedTeam() {
+  state.selectedTeam = null;
+  state.selectedGames = [];
+
+  teamInfo.style.display = "none";
+  teamFlagImg.src = "";
+  teamName.textContent = "—";
+
+  cardsGrid.innerHTML = "";
+
+  eyebrowCount.textContent = "0";
+
+  sectionEyebrow.classList.remove(
+    "visible"
+  );
+
+  gamesEmptyState.style.display =
+    "block";
+
+  gamesEmptyState.textContent =
+    "Seleccione un equipo para consultar su itinerario.";
+
+  stadiumsGrid.innerHTML = "";
+  citiesChips.innerHTML = "";
+
+  citiesSection.style.display =
+    "none";
+
+  hideStadiumAlert();
+
+  stadiumsEmptyState.style.display =
+    "block";
+
+  stadiumsEmptyState.textContent =
+    "Seleccione un equipo para consultar las ciudades y estadios de su itinerario.";
+
+  statsBar.style.display = "none";
+
+  summaryEmptyState.style.display =
+    "block";
+
+  summaryEmptyState.textContent =
+    "Seleccione un equipo para generar el resumen.";
+
+  statGames.textContent = "—";
+  statCities.textContent = "—";
+  statHome.textContent = "—";
+  statAway.textContent = "—";
+  statStadiums.textContent = "—";
+  statCapacity.textContent = "—";
+}
+
+/* ──────────────────────────────────────────────────────
+   EVENTO DEL SELECTOR DE EQUIPOS
+────────────────────────────────────────────────────── */
+function addEventToTeamSelect() {
+  teamSelect.addEventListener(
+    "change",
+    () => {
+      const teamId =
+        teamSelect.value;
+
+      if (!teamId) {
+        clearSelectedTeam();
+        return;
+      }
+
+      const selectedTeam =
+        getTeamById(teamId);
+
+      if (!selectedTeam) {
+        console.error(
+          "No se encontró el equipo seleccionado."
+        );
+
+        clearSelectedTeam();
+        return;
+      }
+
+      state.selectedTeam =
+        selectedTeam;
+
+      renderSelectedTeam(
+        selectedTeam
+      );
+
+      updateSelectedTeamGames();
+      renderStadiumsSection();
+      renderSummarySection();
+
+      console.log(
+        "Equipo seleccionado:",
+        selectedTeam
+      );
+    }
+  );
+}
+
+/* ──────────────────────────────────────────────────────
+   FILTRAR Y ORDENAR PARTIDOS DEL EQUIPO
+────────────────────────────────────────────────────── */
+function updateSelectedTeamGames() {
+  if (!state.selectedTeam) {
+    return;
+  }
+
+  if (!state.gamesLoaded) {
+    gamesEmptyState.style.display =
+      "block";
+
+    gamesEmptyState.textContent =
+      "Los partidos todavía se están cargando.";
+
+    return;
+  }
+
+  const selectedTeamId =
+    String(
+      state.selectedTeam.id
+    );
+
+  state.selectedGames =
+    state.games
+      .filter(game => {
+        return (
+          String(
+            game.home_team_id
+          ) === selectedTeamId ||
+          String(
+            game.away_team_id
+          ) === selectedTeamId
+        );
+      })
+      .sort(
+        (gameA, gameB) => {
+          return (
+            parseLocalDate(
+              gameA.local_date
+            ) -
+            parseLocalDate(
+              gameB.local_date
+            )
+          );
+        }
+      );
+
+  renderGames();
+}
+
+/* ──────────────────────────────────────────────────────
+   CREAR TARJETA DE PARTIDO
 ────────────────────────────────────────────────────── */
 function createMatchCard(game) {
   const selectedTeamId =
-    String(state.selectedTeam.id);
+    String(
+      state.selectedTeam.id
+    );
 
   const isHome =
-    String(game.home_team_id) === selectedTeamId;
+    String(
+      game.home_team_id
+    ) === selectedTeamId;
 
-  const opponentId = isHome
-    ? game.away_team_id
-    : game.home_team_id;
+  const opponentId =
+    isHome
+      ? game.away_team_id
+      : game.home_team_id;
 
   const opponentTeam =
     getTeamById(opponentId);
 
   const opponentName =
     opponentTeam?.name_en ??
-    (isHome
-      ? game.away_team_name_en
-      : game.home_team_name_en) ??
+    (
+      isHome
+        ? game.away_team_name_en
+        : game.home_team_name_en
+    ) ??
     `Equipo ${opponentId}`;
 
   const selectedTeamName =
@@ -632,54 +1282,91 @@ function createMatchCard(game) {
     `Equipo ${state.selectedTeam.id}`;
 
   const roleName =
-    isHome ? "Local" : "Visitante";
+    isHome
+      ? "Local"
+      : "Visitante";
 
   const roleClass =
-    isHome ? "role-home" : "role-away";
+    isHome
+      ? "role-home"
+      : "role-away";
 
-  const matchPhase = getMatchPhase(game);
+  const matchPhase =
+    getMatchPhase(game);
 
   const matchdayText =
-    matchPhase.showMatchday && game.matchday
+    matchPhase.showMatchday &&
+    game.matchday
       ? ` · Jornada ${game.matchday}`
       : "";
 
   const stadium =
-  getStadiumById(game.stadium_id);
+    getStadiumById(
+      game.stadium_id
+    );
 
-  let stadiumName = "Pendiente de cargar";
+  let stadiumName =
+    "Pendiente de cargar";
+
   let stadiumLocation =
-    `Identificador del estadio: ${game.stadium_id ?? "No disponible"}`;
+    `Identificador del estadio: ${
+      game.stadium_id ??
+      "No disponible"
+    }`;
 
   if (state.stadiumsError) {
-    stadiumName = "Estadio no disponible";
+    stadiumName =
+      "Estadio no disponible";
+
     stadiumLocation =
       "La información de estadios no pudo cargarse.";
-  } else if (state.stadiumsLoaded && stadium) {
+  } else if (
+    state.stadiumsLoaded &&
+    stadium
+  ) {
     stadiumName =
-      stadium.name_en ?? stadium.fifa_name ?? "Nombre no disponible";
+      stadium.name_en ??
+      stadium.fifa_name ??
+      "Nombre no disponible";
 
     const city =
-      stadium.city_en ?? "Ciudad no disponible";
+      stadium.city_en ??
+      "Ciudad no disponible";
 
     const country =
-      stadium.country_en ?? "País no disponible";
+      stadium.country_en ??
+      "País no disponible";
 
     const formattedCapacity =
-      Number(stadium.capacity).toLocaleString("es-CR");
+      Number(
+        stadium.capacity || 0
+      ).toLocaleString("es-CR");
 
     stadiumLocation =
-      `${city}, ${country} · Capacidad: ${formattedCapacity}`;
-  } else if (state.stadiumsLoaded && !stadium) {
-    stadiumName = "Estadio no encontrado";
+      `${city}, ${country} · ` +
+      `Capacidad: ${formattedCapacity}`;
+  } else if (
+    state.stadiumsLoaded &&
+    !stadium
+  ) {
+    stadiumName =
+      "Estadio no encontrado";
+
     stadiumLocation =
       `No existe información para el estadio ${game.stadium_id}.`;
   }
 
-  const card = document.createElement("article");
+  const card =
+    document.createElement(
+      "article"
+    );
 
   card.className =
-    `match-card ${isHome ? "home" : "away"}`;
+    `match-card ${
+      isHome
+        ? "home"
+        : "away"
+    }`;
 
   card.innerHTML = `
     <div class="card-stripe"></div>
@@ -694,6 +1381,7 @@ function createMatchCard(game) {
           <span class="team-highlight">
             ${selectedTeamName}
           </span>
+
           vs ${opponentName}
         </h3>
       </div>
@@ -704,11 +1392,19 @@ function createMatchCard(game) {
     </div>
 
     <div class="card-body">
+
       <div class="card-row">
-        <span class="card-icon" aria-hidden="true">📅</span>
+        <span
+          class="card-icon"
+          aria-hidden="true"
+        >
+          📅
+        </span>
 
         <div class="card-row-content">
-          <p class="card-row-label">Fecha y hora</p>
+          <p class="card-row-label">
+            Fecha y hora
+          </p>
 
           <p class="card-row-value">
             ${formatLocalDate(game.local_date)}
@@ -717,10 +1413,17 @@ function createMatchCard(game) {
       </div>
 
       <div class="card-row">
-        <span class="card-icon" aria-hidden="true">🏟️</span>
+        <span
+          class="card-icon"
+          aria-hidden="true"
+        >
+          🏟️
+        </span>
 
         <div class="card-row-content">
-          <p class="card-row-label">Estadio</p>
+          <p class="card-row-label">
+            Estadio
+          </p>
 
           <p class="card-row-value">
             ${stadiumName}
@@ -731,6 +1434,7 @@ function createMatchCard(game) {
           </p>
         </div>
       </div>
+
     </div>
   `;
 
@@ -738,63 +1442,94 @@ function createMatchCard(game) {
 }
 
 /* ──────────────────────────────────────────────────────
-   MOSTRAR LOS PARTIDOS EN PANTALLA
+   MOSTRAR PARTIDOS
 ────────────────────────────────────────────────────── */
 function renderGames() {
   cardsGrid.innerHTML = "";
 
   eyebrowCount.textContent =
-    String(state.selectedGames.length);
+    String(
+      state.selectedGames.length
+    );
 
-  if (state.selectedGames.length === 0) {
-    sectionEyebrow.classList.remove("visible");
+  if (
+    state.selectedGames.length === 0
+  ) {
+    sectionEyebrow.classList.remove(
+      "visible"
+    );
 
-    gamesEmptyState.style.display = "block";
+    gamesEmptyState.style.display =
+      "block";
+
     gamesEmptyState.textContent =
       "No se encontraron partidos para el equipo seleccionado.";
 
     return;
   }
 
-  gamesEmptyState.style.display = "none";
-  sectionEyebrow.classList.add("visible");
+  gamesEmptyState.style.display =
+    "none";
 
-  state.selectedGames.forEach(game => {
-    const card = createMatchCard(game);
-    cardsGrid.appendChild(card);
-  });
+  sectionEyebrow.classList.add(
+    "visible"
+  );
+
+  state.selectedGames.forEach(
+    game => {
+      cardsGrid.appendChild(
+        createMatchCard(game)
+      );
+    }
+  );
 }
 
 /* ──────────────────────────────────────────────────────
    CREAR TARJETA DE ESTADIO
 ────────────────────────────────────────────────────── */
-function createStadiumCard(stadium, gamesCount) {
-  const card = document.createElement("article");
-
-  card.className = "stadium-card";
-
+function createStadiumCard(
+  stadium,
+  gamesCount
+) {
   const stadiumName =
     stadium.name_en ??
     stadium.fifa_name ??
     "Estadio sin nombre";
 
   const city =
-    stadium.city_en ?? "Ciudad no disponible";
+    stadium.city_en ??
+    "Ciudad no disponible";
 
   const country =
-    stadium.country_en ?? "País no disponible";
+    stadium.country_en ??
+    "País no disponible";
 
   const capacity =
-    Number(stadium.capacity).toLocaleString("es-CR");
+    Number(
+      stadium.capacity || 0
+    ).toLocaleString("es-CR");
+
+  const card =
+    document.createElement(
+      "article"
+    );
+
+  card.className =
+    "stadium-card";
 
   card.innerHTML = `
     <div class="stadium-card-header">
-      <span class="stadium-card-icon" aria-hidden="true">
+      <span
+        class="stadium-card-icon"
+        aria-hidden="true"
+      >
         🏟️
       </span>
 
       <div>
-        <h3>${stadiumName}</h3>
+        <h3>
+          ${stadiumName}
+        </h3>
 
         <p>
           ${city}, ${country}
@@ -803,9 +1538,15 @@ function createStadiumCard(stadium, gamesCount) {
     </div>
 
     <div class="stadium-card-data">
+
       <div>
-        <span class="stadium-data-label">Capacidad</span>
-        <strong>${capacity}</strong>
+        <span class="stadium-data-label">
+          Capacidad
+        </span>
+
+        <strong>
+          ${capacity}
+        </strong>
       </div>
 
       <div>
@@ -813,11 +1554,16 @@ function createStadiumCard(stadium, gamesCount) {
           Partidos del equipo
         </span>
 
-       <strong>
-        ${gamesCount}
-        ${gamesCount === 1 ? "partido" : "partidos"}
-      </strong>
+        <strong>
+          ${gamesCount}
+          ${
+            gamesCount === 1
+              ? "partido"
+              : "partidos"
+          }
+        </strong>
       </div>
+
     </div>
   `;
 
@@ -825,25 +1571,31 @@ function createStadiumCard(stadium, gamesCount) {
 }
 
 /* ──────────────────────────────────────────────────────
-   MOSTRAR CIUDADES Y ESTADIOS DEL EQUIPO
+   MOSTRAR CIUDADES Y ESTADIOS
 ────────────────────────────────────────────────────── */
-function renderStadiumsScreen() {
+function renderStadiumsSection() {
   stadiumsGrid.innerHTML = "";
   citiesChips.innerHTML = "";
 
-  alertBanner.style.display = "none";
-  citiesSection.style.display = "none";
+  citiesSection.style.display =
+    "none";
+
+  hideStadiumAlert();
 
   if (!state.selectedTeam) {
-    stadiumsEmptyState.style.display = "block";
+    stadiumsEmptyState.style.display =
+      "block";
+
     stadiumsEmptyState.textContent =
-      "Seleccione un equipo para consultar las ciudades y los estadios de su itinerario.";
+      "Seleccione un equipo para consultar las ciudades y estadios de su itinerario.";
 
     return;
   }
 
   if (!state.gamesLoaded) {
-    stadiumsEmptyState.style.display = "block";
+    stadiumsEmptyState.style.display =
+      "block";
+
     stadiumsEmptyState.textContent =
       "Los partidos todavía se están cargando.";
 
@@ -851,109 +1603,158 @@ function renderStadiumsScreen() {
   }
 
   if (state.stadiumsError) {
-    stadiumsEmptyState.style.display = "block";
+    stadiumsEmptyState.style.display =
+      "block";
+
     stadiumsEmptyState.textContent =
       "Los partidos están disponibles, pero no fue posible cargar los estadios.";
 
-    alertBanner.style.display = "flex";
-
-    alertMsg.textContent =
-      "La petición a /get/stadiums falló. Los partidos permanecen disponibles.";
+    showStadiumAlert(
+      "La petición a /get/stadiums falló. " +
+      "Los partidos permanecen disponibles y puede reintentar solo los estadios."
+    );
 
     return;
   }
 
   if (!state.stadiumsLoaded) {
-    stadiumsEmptyState.style.display = "block";
+    stadiumsEmptyState.style.display =
+      "block";
+
     stadiumsEmptyState.textContent =
       "La información de estadios todavía se está cargando.";
 
     return;
   }
 
-  const stadiumGameCounts = new Map();
+  const stadiumGameCounts =
+    new Map();
 
-  state.selectedGames.forEach(game => {
-    const stadiumId = String(game.stadium_id);
+  state.selectedGames.forEach(
+    game => {
+      const stadiumId =
+        String(
+          game.stadium_id
+        );
 
-    const currentCount =
-      stadiumGameCounts.get(stadiumId) ?? 0;
+      const currentCount =
+        stadiumGameCounts.get(
+          stadiumId
+        ) ?? 0;
 
-    stadiumGameCounts.set(
-      stadiumId,
-      currentCount + 1
-    );
-  });
+      stadiumGameCounts.set(
+        stadiumId,
+        currentCount + 1
+      );
+    }
+  );
 
   const selectedStadiums = [];
 
-  stadiumGameCounts.forEach((gamesCount, stadiumId) => {
-    const stadium =
-      getStadiumById(stadiumId);
+  stadiumGameCounts.forEach(
+    (
+      gamesCount,
+      stadiumId
+    ) => {
+      const stadium =
+        getStadiumById(
+          stadiumId
+        );
 
-    if (stadium) {
-      selectedStadiums.push({
-        stadium,
-        gamesCount
-      });
+      if (stadium) {
+        selectedStadiums.push({
+          stadium,
+          gamesCount
+        });
+      }
     }
-  });
+  );
 
-  selectedStadiums.sort((itemA, itemB) => {
-    const cityA =
-      itemA.stadium.city_en ?? "";
+  selectedStadiums.sort(
+    (itemA, itemB) => {
+      return (
+        itemA.stadium.city_en ??
+        ""
+      ).localeCompare(
+        itemB.stadium.city_en ??
+        ""
+      );
+    }
+  );
 
-    const cityB =
-      itemB.stadium.city_en ?? "";
+  if (
+    selectedStadiums.length === 0
+  ) {
+    stadiumsEmptyState.style.display =
+      "block";
 
-    return cityA.localeCompare(cityB);
-  });
-
-  if (selectedStadiums.length === 0) {
-    stadiumsEmptyState.style.display = "block";
     stadiumsEmptyState.textContent =
       "No se encontraron estadios para el equipo seleccionado.";
 
     return;
   }
 
-  stadiumsEmptyState.style.display = "none";
-  citiesSection.style.display = "block";
+  stadiumsEmptyState.style.display =
+    "none";
+
+  citiesSection.style.display =
+    "block";
 
   const uniqueCities = [
     ...new Set(
-      selectedStadiums.map(item =>
-        item.stadium.city_en ?? "Ciudad no disponible"
+      selectedStadiums.map(
+        item => {
+          return (
+            item.stadium.city_en ??
+            "Ciudad no disponible"
+          );
+        }
       )
     )
   ];
 
-  uniqueCities.forEach(city => {
-    const chip = document.createElement("span");
+  uniqueCities.forEach(
+    city => {
+      const chip =
+        document.createElement(
+          "span"
+        );
 
-    chip.className = "city-chip";
-    chip.textContent = city;
+      chip.className =
+        "city-chip";
 
-    citiesChips.appendChild(chip);
-  });
+      chip.textContent =
+        city;
 
-  selectedStadiums.forEach(item => {
-    const card = createStadiumCard(
-      item.stadium,
-      item.gamesCount
-    );
+      citiesChips.appendChild(
+        chip
+      );
+    }
+  );
 
-    stadiumsGrid.appendChild(card);
-  });
+  selectedStadiums.forEach(
+    item => {
+      stadiumsGrid.appendChild(
+        createStadiumCard(
+          item.stadium,
+          item.gamesCount
+        )
+      );
+    }
+  );
 }
 
 /* ──────────────────────────────────────────────────────
    MOSTRAR RESUMEN DEL RECORRIDO
 ────────────────────────────────────────────────────── */
-function renderSummaryScreen() {
+function renderSummarySection() {
   if (!state.selectedTeam) {
-    statsBar.style.display = "none";
-    summaryEmptyState.style.display = "block";
+    statsBar.style.display =
+      "none";
+
+    summaryEmptyState.style.display =
+      "block";
+
     summaryEmptyState.textContent =
       "Seleccione un equipo para generar el resumen.";
 
@@ -961,8 +1762,12 @@ function renderSummaryScreen() {
   }
 
   if (!state.gamesLoaded) {
-    statsBar.style.display = "none";
-    summaryEmptyState.style.display = "block";
+    statsBar.style.display =
+      "none";
+
+    summaryEmptyState.style.display =
+      "block";
+
     summaryEmptyState.textContent =
       "Los partidos todavía se están cargando.";
 
@@ -970,20 +1775,36 @@ function renderSummaryScreen() {
   }
 
   const selectedTeamId =
-    String(state.selectedTeam.id);
+    String(
+      state.selectedTeam.id
+    );
 
-  const homeGames = state.selectedGames.filter(
-    game =>
-      String(game.home_team_id) === selectedTeamId
-  ).length;
+  const homeGames =
+    state.selectedGames.filter(
+      game => {
+        return (
+          String(
+            game.home_team_id
+          ) === selectedTeamId
+        );
+      }
+    ).length;
 
-  const awayGames = state.selectedGames.filter(
-    game =>
-      String(game.away_team_id) === selectedTeamId
-  ).length;
+  const awayGames =
+    state.selectedGames.filter(
+      game => {
+        return (
+          String(
+            game.away_team_id
+          ) === selectedTeamId
+        );
+      }
+    ).length;
 
   statGames.textContent =
-    String(state.selectedGames.length);
+    String(
+      state.selectedGames.length
+    );
 
   statHome.textContent =
     String(homeGames);
@@ -991,112 +1812,114 @@ function renderSummaryScreen() {
   statAway.textContent =
     String(awayGames);
 
-  /*
-   * Las estadísticas de ciudades, estadios y capacidad
-   * dependen de que /get/stadiums haya cargado.
-   */
-  if (!state.stadiumsLoaded || state.stadiumsError) {
+  if (
+    !state.stadiumsLoaded ||
+    state.stadiumsError
+  ) {
     statCities.textContent = "—";
     statStadiums.textContent = "—";
     statCapacity.textContent = "—";
 
-    statsBar.style.display = "grid";
-    summaryEmptyState.style.display = "none";
+    statsBar.style.display =
+      "grid";
+
+    summaryEmptyState.style.display =
+      "none";
 
     return;
   }
 
-  const uniqueStadiumsMap = new Map();
+  const uniqueStadiumsMap =
+    new Map();
 
-  state.selectedGames.forEach(game => {
-    const stadium =
-      getStadiumById(game.stadium_id);
+  state.selectedGames.forEach(
+    game => {
+      const stadium =
+        getStadiumById(
+          game.stadium_id
+        );
 
-    if (stadium) {
-      uniqueStadiumsMap.set(
-        String(stadium.id),
-        stadium
-      );
+      if (stadium) {
+        uniqueStadiumsMap.set(
+          String(stadium.id),
+          stadium
+        );
+      }
     }
-  });
+  );
 
   const uniqueStadiums =
-    [...uniqueStadiumsMap.values()];
+    [
+      ...uniqueStadiumsMap.values()
+    ];
 
-  const uniqueCities = new Set(
-    uniqueStadiums.map(stadium =>
-      stadium.city_en ?? "Ciudad no disponible"
-    )
-  );
+  const uniqueCities =
+    new Set(
+      uniqueStadiums.map(
+        stadium => {
+          return (
+            stadium.city_en ??
+            "Ciudad no disponible"
+          );
+        }
+      )
+    );
 
-  const totalCapacity = uniqueStadiums.reduce(
-    (total, stadium) =>
-      total + Number(stadium.capacity || 0),
-    0
-  );
+  const totalCapacity =
+    uniqueStadiums.reduce(
+      (total, stadium) => {
+        return (
+          total +
+          Number(
+            stadium.capacity || 0
+          )
+        );
+      },
+      0
+    );
 
   const averageCapacity =
     uniqueStadiums.length > 0
       ? Math.round(
-          totalCapacity / uniqueStadiums.length
+          totalCapacity /
+          uniqueStadiums.length
         )
       : 0;
 
   statCities.textContent =
-    String(uniqueCities.size);
+    String(
+      uniqueCities.size
+    );
 
   statStadiums.textContent =
-    String(uniqueStadiums.length);
+    String(
+      uniqueStadiums.length
+    );
 
   statCapacity.textContent =
-    averageCapacity.toLocaleString("es-CR");
-
-  statsBar.style.display = "grid";
-  summaryEmptyState.style.display = "none";
-}
-
-/* ──────────────────────────────────────────────────────
-   EVENTO DEL SELECTOR
-────────────────────────────────────────────────────── */
-function addEventToTeamSelect() {
-  teamSelect.addEventListener("change", () => {
-    const teamId = teamSelect.value;
-
-    if (!teamId) {
-      clearSelectedTeam();
-      return;
-    }
-
-    const selectedTeam =
-      getTeamById(teamId);
-
-    if (!selectedTeam) {
-      console.error(
-        "No se encontró el equipo seleccionado."
-      );
-
-      clearSelectedTeam();
-      return;
-    }
-
-    state.selectedTeam = selectedTeam;
-
-    renderSelectedTeam(selectedTeam);
-    updateSelectedTeamGames();
-    renderStadiumsScreen();
-    renderSummaryScreen();
-
-    console.log(
-      "Equipo seleccionado:",
-      selectedTeam
+    averageCapacity.toLocaleString(
+      "es-CR"
     );
-  });
+
+  statsBar.style.display =
+    "grid";
+
+  summaryEmptyState.style.display =
+    "none";
 }
 
 /* ──────────────────────────────────────────────────────
    CARGAR EQUIPOS
 ────────────────────────────────────────────────────── */
-function loadTeams() {
+function loadTeams(
+  isBackgroundRetry = false
+) {
+  if (teamsRequestInProgress) {
+    return;
+  }
+
+  teamsRequestInProgress = true;
+
   fetch(`${BASE}/get/teams`)
     .then(response => {
       if (!response.ok) {
@@ -1108,21 +1931,36 @@ function loadTeams() {
       return response.json();
     })
     .then(jsonData => {
-      if (!Array.isArray(jsonData.teams)) {
+      if (
+        !Array.isArray(
+          jsonData.teams
+        )
+      ) {
         throw new Error(
           "La API no devolvió una lista válida de equipos."
         );
       }
 
-      state.teams = jsonData.teams;
+      state.teams =
+        jsonData.teams;
+
+      state.teamsLoaded = true;
+      state.teamsError = false;
+      state.teamsRetryAttempt = 0;
+
+      clearTeamsBackgroundRetry();
 
       saveToCache(
         CACHE_KEYS.teams,
         state.teams
       );
 
-      markResourceAsFresh("teams");
+      markResourceAsFresh(
+        "teams"
+      );
+
       populateTeamSelector();
+      renderGoleadas();
 
       console.log(
         `${state.teams.length} equipos cargados correctamente.`
@@ -1135,10 +1973,21 @@ function loadTeams() {
       );
 
       const cachedTeams =
-        getFromCache(CACHE_KEYS.teams);
+        getFromCache(
+          CACHE_KEYS.teams
+        );
 
-      if (cachedTeams && Array.isArray(cachedTeams.data)) {
-        state.teams = cachedTeams.data;
+      if (
+        cachedTeams &&
+        Array.isArray(
+          cachedTeams.data
+        )
+      ) {
+        state.teams =
+          cachedTeams.data;
+
+        state.teamsLoaded = true;
+        state.teamsError = false;
 
         markResourceAsCached(
           "teams",
@@ -1146,6 +1995,7 @@ function loadTeams() {
         );
 
         populateTeamSelector();
+        renderGoleadas();
 
         console.warn(
           "Se utilizaron equipos guardados en localStorage."
@@ -1154,17 +2004,96 @@ function loadTeams() {
         return;
       }
 
-      teamSelect.innerHTML =
-        `<option value="">
-          No se pudieron cargar los equipos
-        </option>`;
+      state.teams = [];
+      state.teamsLoaded = false;
+      state.teamsError = true;
+
+      teamSelect.innerHTML = `
+        <option value="">
+          Equipos temporalmente no disponibles
+        </option>
+      `;
 
       teamSelect.disabled = true;
+
+      /*
+       * La pantalla 2.2 no desaparece.
+       * Se vuelve a dibujar utilizando IDs.
+       */
+      renderGoleadas();
+      scheduleTeamsBackgroundRetry();
+    })
+    .finally(() => {
+      teamsRequestInProgress = false;
+
+      if (
+        isBackgroundRetry &&
+        state.teamsLoaded
+      ) {
+        console.log(
+          "/get/teams se recuperó en segundo plano."
+        );
+      }
     });
 }
 
 /* ──────────────────────────────────────────────────────
-   CARGAR PARTIDOS CON RESPALDO EN LOCALSTORAGE
+   CANCELAR REINTENTO PENDIENTE DE EQUIPOS
+────────────────────────────────────────────────────── */
+function clearTeamsBackgroundRetry() {
+  if (teamsBackgroundRetryTimer) {
+    clearTimeout(
+      teamsBackgroundRetryTimer
+    );
+
+    teamsBackgroundRetryTimer = null;
+  }
+}
+
+/* ──────────────────────────────────────────────────────
+   PROGRAMAR REINTENTO DE EQUIPOS EN SEGUNDO PLANO
+────────────────────────────────────────────────────── */
+function scheduleTeamsBackgroundRetry() {
+  if (
+    state.teamsRetryAttempt >=
+    TEAM_BACKGROUND_RETRY_DELAYS.length
+  ) {
+    if (goleadasTeamsWarningMessage) {
+      goleadasTeamsWarningMessage.textContent =
+        "No fue posible recuperar los nombres y banderas. Las goleadas continúan visibles utilizando los identificadores de los equipos.";
+    }
+
+    return;
+  }
+
+  const delay =
+    TEAM_BACKGROUND_RETRY_DELAYS[
+      state.teamsRetryAttempt
+    ];
+
+  state.teamsRetryAttempt += 1;
+
+  console.warn(
+    "Nuevo intento de /get/teams en " +
+    `${delay / 1000} segundos.`
+  );
+
+  if (goleadasTeamsWarningMessage) {
+    goleadasTeamsWarningMessage.textContent =
+      "Las goleadas permanecen visibles usando identificadores. " +
+      `/get/teams se reintentará en ${delay / 1000} segundos.`;
+  }
+
+  clearTeamsBackgroundRetry();
+
+  teamsBackgroundRetryTimer =
+    setTimeout(() => {
+      loadTeams(true);
+    }, delay);
+}
+
+/* ──────────────────────────────────────────────────────
+   CARGAR PARTIDOS
 ────────────────────────────────────────────────────── */
 function loadGames() {
   fetch(`${BASE}/get/games`)
@@ -1178,21 +2107,30 @@ function loadGames() {
       return response.json();
     })
     .then(jsonData => {
-      if (!Array.isArray(jsonData.games)) {
+      if (
+        !Array.isArray(
+          jsonData.games
+        )
+      ) {
         throw new Error(
           "La API no devolvió una lista válida de partidos."
         );
       }
 
-      state.games = jsonData.games;
+      state.games =
+        jsonData.games;
+
       state.gamesLoaded = true;
+      state.gamesError = false;
 
       saveToCache(
         CACHE_KEYS.games,
         state.games
       );
 
-      markResourceAsFresh("games");
+      markResourceAsFresh(
+        "games"
+      );
 
       console.log(
         `${state.games.length} partidos cargados correctamente.`
@@ -1200,9 +2138,11 @@ function loadGames() {
 
       if (state.selectedTeam) {
         updateSelectedTeamGames();
-        renderStadiumsScreen();
-        renderSummaryScreen();
+        renderStadiumsSection();
+        renderSummarySection();
       }
+
+      renderGoleadas();
     })
     .catch(error => {
       console.error(
@@ -1211,11 +2151,21 @@ function loadGames() {
       );
 
       const cachedGames =
-        getFromCache(CACHE_KEYS.games);
+        getFromCache(
+          CACHE_KEYS.games
+        );
 
-      if (cachedGames && Array.isArray(cachedGames.data)) {
-        state.games = cachedGames.data;
+      if (
+        cachedGames &&
+        Array.isArray(
+          cachedGames.data
+        )
+      ) {
+        state.games =
+          cachedGames.data;
+
         state.gamesLoaded = true;
+        state.gamesError = false;
 
         markResourceAsCached(
           "games",
@@ -1228,50 +2178,81 @@ function loadGames() {
 
         if (state.selectedTeam) {
           updateSelectedTeamGames();
-          renderStadiumsScreen();
-          renderSummaryScreen();
+          renderStadiumsSection();
+          renderSummarySection();
         }
 
+        renderGoleadas();
         return;
       }
 
       state.games = [];
       state.gamesLoaded = false;
+      state.gamesError = true;
 
-      gamesEmptyState.style.display = "block";
+      gamesEmptyState.style.display =
+        "block";
+
       gamesEmptyState.textContent =
         "No fue posible cargar los partidos y no existen datos guardados.";
+
+      renderGoleadas();
     });
 }
 
 /* ──────────────────────────────────────────────────────
-   CARGAR ESTADIOS CON REINTENTOS Y LOCALSTORAGE
+   CARGAR ESTADIOS
 ────────────────────────────────────────────────────── */
 function loadStadiums() {
+  if (state.stadiumsLoading) {
+    return;
+  }
+
+  state.stadiumsLoading = true;
   state.stadiumsError = false;
+
+  hideStadiumAlert();
+
+  if (retryStadiumsButton) {
+    retryStadiumsButton.disabled =
+      true;
+  }
 
   fetchJsonWithRetry(
     "/get/stadiums",
     "estadios"
   )
     .then(jsonData => {
-      if (!Array.isArray(jsonData.stadiums)) {
+      if (
+        !Array.isArray(
+          jsonData.stadiums
+        )
+      ) {
         throw new Error(
           "La API no devolvió una lista válida de estadios."
         );
       }
 
-      state.stadiums = jsonData.stadiums;
-      state.stadiumsLoaded = true;
-      state.stadiumsError = false;
+      state.stadiums =
+        jsonData.stadiums;
+
+      state.stadiumsLoaded =
+        true;
+
+      state.stadiumsError =
+        false;
 
       saveToCache(
         CACHE_KEYS.stadiums,
         state.stadiums
       );
 
-      markResourceAsFresh("stadiums");
+      markResourceAsFresh(
+        "stadiums"
+      );
+
       hideResilienceBanner();
+      hideStadiumAlert();
 
       console.log(
         `${state.stadiums.length} estadios cargados correctamente.`
@@ -1279,8 +2260,8 @@ function loadStadiums() {
 
       if (state.selectedTeam) {
         renderGames();
-        renderStadiumsScreen();
-        renderSummaryScreen();
+        renderStadiumsSection();
+        renderSummarySection();
       }
     })
     .catch(error => {
@@ -1290,15 +2271,19 @@ function loadStadiums() {
       );
 
       const cachedStadiums =
-        getFromCache(CACHE_KEYS.stadiums);
+        getFromCache(
+          CACHE_KEYS.stadiums
+        );
 
-      if (
-        cachedStadiums &&
-        Array.isArray(cachedStadiums.data)
-      ) {
-        state.stadiums = cachedStadiums.data;
-        state.stadiumsLoaded = true;
-        state.stadiumsError = false;
+      if (cachedStadiums) {
+        state.stadiums =
+          cachedStadiums.data;
+
+        state.stadiumsLoaded =
+          true;
+
+        state.stadiumsError =
+          false;
 
         markResourceAsCached(
           "stadiums",
@@ -1306,6 +2291,7 @@ function loadStadiums() {
         );
 
         hideResilienceBanner();
+        hideStadiumAlert();
 
         console.warn(
           "Se utilizaron estadios guardados en localStorage."
@@ -1313,26 +2299,44 @@ function loadStadiums() {
 
         if (state.selectedTeam) {
           renderGames();
-          renderStadiumsScreen();
-          renderSummaryScreen();
+          renderStadiumsSection();
+          renderSummarySection();
         }
 
         return;
       }
 
       state.stadiums = [];
-      state.stadiumsLoaded = false;
-      state.stadiumsError = true;
+
+      state.stadiumsLoaded =
+        false;
+
+      state.stadiumsError =
+        true;
 
       showResilienceBanner(
         "No se pudieron cargar los estadios",
         "Se agotaron los reintentos y no existen datos guardados."
       );
 
+      showStadiumAlert(
+        "Los partidos permanecen visibles. " +
+        "Puede reintentar únicamente la carga de estadios."
+      );
+
       if (state.selectedTeam) {
         renderGames();
-        renderStadiumsScreen();
-        renderSummaryScreen();
+        renderStadiumsSection();
+        renderSummarySection();
+      }
+    })
+    .finally(() => {
+      state.stadiumsLoading =
+        false;
+
+      if (retryStadiumsButton) {
+        retryStadiumsButton.disabled =
+          false;
       }
     });
 }
@@ -1342,11 +2346,22 @@ function loadStadiums() {
 ────────────────────────────────────────────────────── */
 function init() {
   configureScreenNavigation();
+  configureInternalNavigation();
   addEventToTeamSelect();
+  clearSelectedTeam();
+
+  showScreen(
+    "ruta",
+    false
+  );
 
   loadTeams();
   loadGames();
   loadStadiums();
+
+  setApiStatus(
+    "API worldcup26.ir"
+  );
 }
 
 /* Punto de entrada */

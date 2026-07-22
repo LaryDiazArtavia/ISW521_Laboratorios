@@ -3,373 +3,782 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FIFA World Cup 2026 · Itinerario por Equipo</title>
 
-  <!-- Fuentes institucionales -->
+  <title>FIFA World Cup 2026 · Laboratorio 2</title>
+
+  <!-- Fuentes -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 
-  <!-- Estilos de la aplicación -->
-  <link rel="stylesheet" href="worldcup26_styles.css">
+  <link
+    rel="preconnect"
+    href="https://fonts.gstatic.com"
+    crossorigin
+  >
+
+  <link
+    href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap"
+    rel="stylesheet"
+  >
+
+  <!-- Estilos -->
+  <link
+    rel="stylesheet"
+    href="worldcup26_styles.css"
+  >
 </head>
+
 <body>
 
-<!-- ═══════════════════════════════════════════════════════
-     HEADER
-═══════════════════════════════════════════════════════ -->
-<header>
-  <div class="logo-mark" aria-hidden="true">
-    <svg viewBox="0 0 26 26" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="13" cy="13" r="11" stroke="#0A0A0A" stroke-width="2"/>
-      <path d="M7 13l4 4 8-8" stroke="#0A0A0A" stroke-width="2.2"
-            stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>
-  </div>
-  <div class="header-titles">
-    <h1>World Cup 2026 · Itinerario</h1>
-    <p>Cruce de equipos, partidos y estadios · ISW-521</p>
-  </div>
-  <span class="header-badge" id="apiStatus">API worldcup26.ir</span>
-</header>
+  <!-- ═══════════════════════════════════════════════════
+       ENCABEZADO
+  ════════════════════════════════════════════════════ -->
+  <header class="app-header">
 
-<!-- ═══════════════════════════════════════════════════════
-     NAVEGACIÓN ENTRE LAS CINCO PANTALLAS
-═══════════════════════════════════════════════════════ -->
-<nav class="screen-nav" aria-label="Navegación principal">
+    <div class="logo-mark" aria-hidden="true">
+      <svg
+        viewBox="0 0 26 26"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <circle
+          cx="13"
+          cy="13"
+          r="11"
+          stroke="#0A0A0A"
+          stroke-width="2"
+        />
+
+        <path
+          d="M7 13l4 4 8-8"
+          stroke="#0A0A0A"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </div>
+
+    <div class="header-titles">
+      <h1>World Cup 2026 · Categoría A</h1>
+
+      <p>
+        Cruce de datos y analítica · ISW-521
+      </p>
+    </div>
+
+    <span
+      class="header-badge"
+      id="apiStatus"
+    >
+      Conectando con la API…
+    </span>
+
+  </header>
+
+  <!-- ═══════════════════════════════════════════════════
+       NAVEGACIÓN DE LAS CINCO PANTALLAS REALES
+       Por ahora solo está habilitada la pantalla 2.1
+  ════════════════════════════════════════════════════ -->
+ <nav
+  class="screen-nav"
+  aria-label="Pantallas del laboratorio"
+>
   <button
     type="button"
     class="screen-nav-button active"
-    data-screen="inicio">
-    1. Inicio
+    data-screen="ruta"
+    aria-current="page"
+  >
+    1. Ruta del Campeón
   </button>
 
   <button
     type="button"
     class="screen-nav-button"
-    data-screen="equipo">
-    2. Equipo
+    data-screen="goleadas"
+  >
+    2. Goleadas
   </button>
 
   <button
     type="button"
     class="screen-nav-button"
-    data-screen="itinerario">
-    3. Itinerario
+    data-screen="muro"
+    disabled
+    title="Pendiente de implementar"
+  >
+    3. El Muro
   </button>
 
   <button
     type="button"
     class="screen-nav-button"
-    data-screen="estadios">
-    4. Estadios
+    data-screen="analitica"
+    disabled
+    title="Pendiente de implementar"
+  >
+    4. Analítica
   </button>
 
   <button
     type="button"
     class="screen-nav-button"
-    data-screen="resumen">
-    5. Resumen
+    data-screen="empates"
+    disabled
+    title="Pendiente de implementar"
+  >
+    5. Empates
   </button>
 </nav>
 
-<!-- ═══════════════════════════════════════════════════════
-     ESTADO DE REINTENTOS Y ERRORES HTTP
-═══════════════════════════════════════════════════════ -->
-<div
-  class="resilience-banner"
-  id="resilienceBanner"
-  role="status"
-  aria-live="polite"
-  hidden>
+  <!-- ═══════════════════════════════════════════════════
+       BANNER DE REINTENTOS
+  ════════════════════════════════════════════════════ -->
+  <div
+    class="resilience-banner"
+    id="resilienceBanner"
+    role="status"
+    aria-live="polite"
+    hidden
+  >
 
-  <span class="resilience-icon" aria-hidden="true">⏳</span>
+    <span
+      class="status-icon"
+      aria-hidden="true"
+    >
+      ⏳
+    </span>
 
-  <div>
-    <strong id="resilienceTitle">
-      Reintentando petición
-    </strong>
+    <div>
+      <strong id="resilienceTitle">
+        Reintentando petición
+      </strong>
 
-    <p id="resilienceMessage">
-      Esperando para realizar un nuevo intento.
-    </p>
+      <p id="resilienceMessage">
+        Esperando para realizar un nuevo intento.
+      </p>
+    </div>
+
   </div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════
-     AVISO DE DATOS GUARDADOS
-═══════════════════════════════════════════════════════ -->
-<div
-  class="offline-banner"
-  id="offlineBanner"
-  role="status"
-  aria-live="polite"
-  hidden>
-
-  <span class="offline-icon" aria-hidden="true">💾</span>
-
-  <div>
-    <strong>Mostrando datos guardados</strong>
-
-    <p id="offlineMessage">
-      Parte de la información proviene de localStorage.
-    </p>
-  </div>
-</div>
-
-<!-- ═══════════════════════════════════════════════════════
-     MAIN
-═══════════════════════════════════════════════════════ -->
-<main>
 
   <!-- ═══════════════════════════════════════════════════
-       PANTALLA 1: INICIO
-  ═══════════════════════════════════════════════════ -->
-  <section
-    class="app-screen active"
-    id="screen-inicio"
-    data-screen-panel="inicio">
+       BANNER DE DATOS GUARDADOS
+  ════════════════════════════════════════════════════ -->
+  <div
+    class="offline-banner"
+    id="offlineBanner"
+    role="status"
+    aria-live="polite"
+    hidden
+  >
 
-    <div class="screen-heading">
-      <span class="screen-number">Pantalla 1</span>
-      <h2>Ruta del Campeón</h2>
-      <p>
-        Consulta el itinerario de cualquiera de los equipos participantes
-        en la Copa Mundial 2026.
+    <span
+      class="status-icon"
+      aria-hidden="true"
+    >
+      💾
+    </span>
+
+    <div>
+      <strong>
+        Mostrando datos guardados
+      </strong>
+
+      <p id="offlineMessage">
+        Parte de la información proviene de localStorage.
       </p>
     </div>
 
-    <div class="welcome-panel">
-      <h3>¿Qué permite hacer esta aplicación?</h3>
-
-      <p>
-        Seleccionar un equipo, consultar sus partidos, conocer las ciudades
-        y estadios que visitará y visualizar un resumen completo de su recorrido.
-      </p>
-
-      <button type="button" class="primary-button" id="startButton">
-        Comenzar consulta
-      </button>
-    </div>
-
-  </section>
+  </div>
 
   <!-- ═══════════════════════════════════════════════════
-       PANTALLA 2: SELECCIÓN DEL EQUIPO
-  ═══════════════════════════════════════════════════ -->
-  <section
-    class="app-screen"
-    id="screen-equipo"
-    data-screen-panel="equipo"
-    hidden>
+       CONTENIDO PRINCIPAL
+  ════════════════════════════════════════════════════ -->
+  <main>
 
-    <div class="screen-heading">
-      <span class="screen-number">Pantalla 2</span>
-      <h2>Selección del equipo</h2>
-      <p>
-        Seleccione uno de los equipos obtenidos desde el endpoint
-        <code>/get/teams</code>.
-      </p>
-    </div>
-
-    <!-- Selector poblado desde /get/teams -->
-    <section class="selector-panel" aria-label="Selección de equipo">
-      <div class="selector-group">
-        <label for="teamSelect">Selecciona un equipo</label>
-
-        <select id="teamSelect" disabled aria-live="polite">
-          <option value="">— Cargando equipos…</option>
-        </select>
-      </div>
-    </section>
-
-    <!-- Información del equipo seleccionado -->
+    <!-- ═══════════════════════════════════════════════
+         PANTALLA 2.1: LA RUTA DEL CAMPEÓN
+    ════════════════════════════════════════════════ -->
     <section
-      class="team-info"
-      id="teamInfo"
-      aria-label="Información del equipo seleccionado">
+      class="app-screen active"
+      id="screen-ruta"
+      data-screen-panel="ruta"
+      aria-labelledby="routeTitle"
+    >
 
-      <div class="team-flag">
-        <img
-          src=""
-          alt="Bandera del equipo"
-          id="teamFlagImg">
+      <!-- Presentación -->
+      <div class="route-hero">
+
+        <div>
+          <span class="screen-number">
+            Pantalla 2.1
+          </span>
+
+          <h2 id="routeTitle">
+            La Ruta del Campeón
+          </h2>
+
+          <p>
+            Seleccione un equipo para consultar todos sus partidos,
+            ordenados por fecha, y conocer los estadios y ciudades
+            de su recorrido en el Mundial 2026.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          class="primary-button"
+          id="startButton"
+        >
+          Seleccionar un equipo
+        </button>
+
       </div>
 
-      <div class="team-details">
-        <h2 class="team-name" id="teamName">—</h2>
-      </div>
+      <!-- ═════════════════════════════════════════════
+           SELECCIÓN DEL EQUIPO
+      ══════════════════════════════════════════════ -->
+      <section
+        class="route-section"
+        id="teamSelectionSection"
+        aria-labelledby="teamSelectionTitle"
+      >
+
+        <div class="section-heading">
+
+          <div>
+            <span class="section-kicker">
+              Paso 1
+            </span>
+
+            <h3 id="teamSelectionTitle">
+              Selección del equipo
+            </h3>
+          </div>
+
+          <p>
+            Datos obtenidos desde
+            <code>/get/teams</code>.
+          </p>
+
+        </div>
+
+        <div class="selector-panel">
+
+          <div class="selector-group">
+
+            <label for="teamSelect">
+              Equipo participante
+            </label>
+
+            <select
+              id="teamSelect"
+              disabled
+              aria-live="polite"
+            >
+              <option value="">
+                — Cargando equipos… —
+              </option>
+            </select>
+
+          </div>
+
+        </div>
+
+        <!-- Equipo seleccionado -->
+        <div
+          class="team-info"
+          id="teamInfo"
+          aria-live="polite"
+        >
+
+          <div class="team-flag">
+
+            <img
+              src=""
+              alt="Bandera del equipo"
+              id="teamFlagImg"
+            >
+
+          </div>
+
+          <div class="team-details">
+
+            <span>
+              Equipo seleccionado
+            </span>
+
+            <h3
+              class="team-name"
+              id="teamName"
+            >
+              —
+            </h3>
+
+          </div>
+
+        </div>
+
+      </section>
+
+      <!-- ═════════════════════════════════════════════
+           RESUMEN
+      ══════════════════════════════════════════════ -->
+      <section
+        class="route-section"
+        aria-labelledby="summaryTitle"
+      >
+
+        <div class="section-heading">
+
+          <div>
+            <span class="section-kicker">
+              Resumen
+            </span>
+
+            <h3 id="summaryTitle">
+              Resumen del recorrido
+            </h3>
+          </div>
+
+          <p>
+            Estadísticas calculadas a partir de los
+            partidos y estadios del equipo.
+          </p>
+
+        </div>
+
+        <div
+          class="empty-state"
+          id="summaryEmptyState"
+        >
+          Seleccione un equipo para generar el resumen.
+        </div>
+
+        <div
+          class="stats-bar route-summary"
+          id="statsBar"
+          aria-live="polite"
+        >
+
+          <div class="stat-cell">
+            <span
+              class="stat-num"
+              id="statGames"
+            >
+              —
+            </span>
+
+            <span class="stat-label">
+              Partidos
+            </span>
+          </div>
+
+          <div class="stat-cell">
+            <span
+              class="stat-num"
+              id="statCities"
+            >
+              —
+            </span>
+
+            <span class="stat-label">
+              Ciudades
+            </span>
+          </div>
+
+          <div class="stat-cell">
+            <span
+              class="stat-num"
+              id="statHome"
+            >
+              —
+            </span>
+
+            <span class="stat-label">
+              Locales
+            </span>
+          </div>
+
+          <div class="stat-cell">
+            <span
+              class="stat-num"
+              id="statAway"
+            >
+              —
+            </span>
+
+            <span class="stat-label">
+              Visitantes
+            </span>
+          </div>
+
+          <div class="stat-cell">
+            <span
+              class="stat-num"
+              id="statStadiums"
+            >
+              —
+            </span>
+
+            <span class="stat-label">
+              Estadios
+            </span>
+          </div>
+
+          <div class="stat-cell">
+            <span
+              class="stat-num"
+              id="statCapacity"
+            >
+              —
+            </span>
+
+            <span class="stat-label">
+              Capacidad promedio
+            </span>
+          </div>
+
+        </div>
+
+      </section>
+
+      <!-- ═════════════════════════════════════════════
+           ITINERARIO
+      ══════════════════════════════════════════════ -->
+      <section
+        class="route-section"
+        aria-labelledby="itineraryTitle"
+      >
+
+        <div class="section-heading">
+
+          <div>
+            <span class="section-kicker">
+              Paso 2
+            </span>
+
+            <h3 id="itineraryTitle">
+              Itinerario de partidos
+            </h3>
+          </div>
+
+          <p>
+            Partidos de
+            <code>/get/games</code>
+            ordenados por
+            <code>local_date</code>.
+          </p>
+
+        </div>
+
+        <div
+          class="empty-state"
+          id="gamesEmptyState"
+        >
+          Seleccione un equipo para consultar su itinerario.
+        </div>
+
+        <div
+          class="section-eyebrow"
+          id="sectionEyebrow"
+        >
+
+          <span class="eyebrow-label">
+            Partidos encontrados
+          </span>
+
+          <div class="eyebrow-line"></div>
+
+          <span
+            class="eyebrow-count"
+            id="eyebrowCount"
+          >
+            0
+          </span>
+
+        </div>
+
+        <div
+          class="cards-grid"
+          id="cardsGrid"
+          aria-live="polite"
+          aria-label="Itinerario de partidos"
+        >
+        </div>
+
+      </section>
+
+      <!-- ═════════════════════════════════════════════
+           CIUDADES Y ESTADIOS
+      ══════════════════════════════════════════════ -->
+      <section
+        class="route-section"
+        aria-labelledby="stadiumsTitle"
+      >
+
+        <div class="section-heading">
+
+          <div>
+            <span class="section-kicker">
+              Paso 3
+            </span>
+
+            <h3 id="stadiumsTitle">
+              Ciudades y estadios
+            </h3>
+          </div>
+
+          <p>
+            Cruce de cada
+            <code>stadium_id</code>
+            con
+            <code>/get/stadiums</code>.
+          </p>
+
+        </div>
+
+        <!-- Error de estadios -->
+        <div
+          class="alert-banner"
+          id="alertBanner"
+          role="alert"
+          aria-live="assertive"
+          hidden
+        >
+
+          <span
+            class="alert-icon"
+            aria-hidden="true"
+          >
+            ⚡
+          </span>
+
+          <div class="alert-content">
+
+            <strong>
+              Estadios no disponibles
+            </strong>
+
+            <p id="alertMsg">
+              Los partidos permanecen visibles.
+              Se reintentará únicamente la carga de estadios.
+            </p>
+
+          </div>
+
+          <button
+            type="button"
+            class="secondary-button"
+            id="retryStadiumsButton"
+          >
+            Reintentar estadios
+          </button>
+
+        </div>
+
+        <div
+          class="empty-state"
+          id="stadiumsEmptyState"
+        >
+          Seleccione un equipo para consultar las ciudades
+          y estadios de su itinerario.
+        </div>
+
+        <!-- Ciudades distintas -->
+        <div
+          class="cities-section"
+          id="citiesSection"
+        >
+
+          <p class="cities-title">
+            Ciudades distintas del recorrido
+          </p>
+
+          <div
+            class="cities-chips"
+            id="citiesChips"
+          >
+          </div>
+
+        </div>
+
+        <!-- Tarjetas de estadios -->
+        <div
+          class="stadiums-grid"
+          id="stadiumsGrid"
+          aria-live="polite"
+        >
+        </div>
+
+      </section>
+
     </section>
 
-  </section>
+    <!-- ═══════════════════════════════════════════════════
+     PANTALLA 2.2: RASTREADOR DE GOLEADAS
+════════════════════════════════════════════════════ -->
+<section
+  class="app-screen"
+  id="screen-goleadas"
+  data-screen-panel="goleadas"
+  aria-labelledby="goleadasTitle"
+  hidden
+>
 
-  <!-- ═══════════════════════════════════════════════════
-       PANTALLA 3: ITINERARIO DE PARTIDOS
-  ═══════════════════════════════════════════════════ -->
-  <section
-    class="app-screen"
-    id="screen-itinerario"
-    data-screen-panel="itinerario"
-    hidden>
+  <!-- Presentación -->
+  <div class="route-hero goleadas-hero">
 
-    <div class="screen-heading">
-      <span class="screen-number">Pantalla 3</span>
-      <h2>Itinerario de partidos</h2>
+    <div>
+      <span class="screen-number">
+        Pantalla 2.2
+      </span>
+
+      <h2 id="goleadasTitle">
+        Rastreador de Goleadas
+      </h2>
+
       <p>
-        Partidos del equipo seleccionado, ordenados cronológicamente.
+        Analiza los partidos terminados del Mundial 2026,
+        detecta resultados con una diferencia mínima de
+        tres goles y los ordena desde la mayor diferencia.
       </p>
     </div>
 
-    <div class="empty-state" id="gamesEmptyState">
-      Seleccione primero un equipo para consultar su itinerario.
+    <div class="goleadas-total-box">
+      <span>
+        Total de goleadas
+      </span>
+
+      <strong id="goleadasTotal">
+        0
+      </strong>
     </div>
 
-    <!-- Encabezado con contador de partidos -->
-    <div class="section-eyebrow" id="sectionEyebrow">
-      <span class="eyebrow-label">Partidos del equipo</span>
-      <div class="eyebrow-line"></div>
-      <span class="eyebrow-count" id="eyebrowCount">0</span>
-    </div>
+  </div>
 
-    <!-- Tarjetas de partidos -->
-    <div
-      class="cards-grid"
-      id="cardsGrid"
-      aria-live="polite"
-      aria-label="Itinerario de partidos">
-    </div>
-
-  </section>
-
-  <!-- ═══════════════════════════════════════════════════
-       PANTALLA 4: CIUDADES Y ESTADIOS
-  ═══════════════════════════════════════════════════ -->
+  <!-- Estado de la información -->
   <section
-    class="app-screen"
-    id="screen-estadios"
-    data-screen-panel="estadios"
-    hidden>
+    class="route-section"
+    aria-labelledby="goleadasResultsTitle"
+  >
 
-    <div class="screen-heading">
-      <span class="screen-number">Pantalla 4</span>
-      <h2>Ciudades y estadios</h2>
-      <p>
-        Información obtenida al cruzar los partidos con el endpoint
-        <code>/get/stadiums</code>.
-      </p>
-    </div>
-
-    <!-- Banner mostrado cuando falla /get/stadiums -->
-    <div
-      class="alert-banner"
-      id="alertBanner"
-      role="alert"
-      aria-live="assertive">
-
-      <span class="alert-icon">⚡</span>
+    <div class="section-heading">
 
       <div>
-        <strong>Estadios no disponibles</strong><br>
-
-        <span id="alertMsg">
-          La petición a /get/stadiums falló. Los partidos permanecen
-          disponibles y se reintentará únicamente la carga de estadios.
+        <span class="section-kicker">
+          Resultados encontrados
         </span>
+
+        <h3 id="goleadasResultsTitle">
+          Partidos con diferencia de 3 o más goles
+        </h3>
+      </div>
+
+      <p>
+        Datos obtenidos desde
+        <code>/get/games</code>
+        y cruzados con
+        <code>/get/teams</code>.
+      </p>
+
+    </div>
+
+    <!-- Aviso cuando los equipos no estén disponibles -->
+    <div
+      class="teams-warning"
+      id="goleadasTeamsWarning"
+      role="status"
+      aria-live="polite"
+      hidden
+    >
+      <span
+        class="status-icon"
+        aria-hidden="true"
+      >
+        ⚠
+      </span>
+
+      <div>
+        <strong>
+          Información de equipos no disponible
+        </strong>
+
+        <p id="goleadasTeamsWarningMessage">
+          Las goleadas se muestran temporalmente utilizando
+          los identificadores de los equipos. Los nombres y
+          banderas aparecerán cuando la petición se recupere.
+        </p>
       </div>
     </div>
 
-    <div class="empty-state" id="stadiumsEmptyState">
-      Seleccione un equipo para consultar las ciudades y los estadios
-      de su itinerario.
-    </div>
-
-    <!-- Ciudades distintas del recorrido -->
-    <div class="cities-section" id="citiesSection">
-      <p class="cities-title">Ciudades sede del itinerario</p>
-      <div class="cities-chips" id="citiesChips"></div>
-    </div>
-
-    <!-- Posteriormente se mostrarán los estadios aquí -->
+    <!-- Estado inicial o de carga -->
     <div
-      class="stadiums-grid"
-      id="stadiumsGrid"
-      aria-live="polite">
+      class="empty-state"
+      id="goleadasEmptyState"
+    >
+      Cargando los partidos terminados...
+    </div>
+
+    <!-- Contador visible -->
+    <div
+      class="section-eyebrow"
+      id="goleadasEyebrow"
+    >
+      <span class="eyebrow-label">
+        Goleadas ordenadas por diferencia
+      </span>
+
+      <div class="eyebrow-line"></div>
+
+      <span
+        class="eyebrow-count"
+        id="goleadasCount"
+      >
+        0
+      </span>
+    </div>
+
+    <!-- Tarjetas generadas dinámicamente -->
+    <div
+      class="goleadas-grid"
+      id="goleadasGrid"
+      aria-live="polite"
+      aria-label="Lista de goleadas"
+    >
     </div>
 
   </section>
+
+</section>
+
+  </main>
 
   <!-- ═══════════════════════════════════════════════════
-       PANTALLA 5: RESUMEN
-  ═══════════════════════════════════════════════════ -->
-  <section
-    class="app-screen"
-    id="screen-resumen"
-    data-screen-panel="resumen"
-    hidden>
+       PIE DE PÁGINA
+  ════════════════════════════════════════════════════ -->
+  <footer>
 
-    <div class="screen-heading">
-      <span class="screen-number">Pantalla 5</span>
-      <h2>Resumen del recorrido</h2>
-      <p>
-        Estadísticas generales calculadas a partir del itinerario
-        del equipo seleccionado.
-      </p>
-    </div>
+    <span>
+      Datos:
+      <code>worldcup26.ir</code>
+      · Endpoints:
+      <code>/get/teams</code>
+      <code>/get/games</code>
+      <code>/get/stadiums</code>
+    </span>
 
-    <div class="empty-state" id="summaryEmptyState">
-      Seleccione un equipo para generar el resumen.
-    </div>
+    <span>
+      ISW-521 · Laboratorio 2
+    </span>
 
-    <!-- Estadísticas del equipo seleccionado -->
-    <div class="stats-bar" id="statsBar" aria-live="polite">
-      <div class="stat-cell">
-        <span class="stat-num" id="statGames">—</span>
-        <span class="stat-label">Partidos</span>
-      </div>
+  </footer>
 
-      <div class="stat-cell">
-        <span class="stat-num" id="statCities">—</span>
-        <span class="stat-label">Ciudades</span>
-      </div>
-
-      <div class="stat-cell">
-        <span class="stat-num" id="statHome">—</span>
-        <span class="stat-label">Locales</span>
-      </div>
-
-      <div class="stat-cell">
-        <span class="stat-num" id="statAway">—</span>
-        <span class="stat-label">Visitantes</span>
-      </div>
-
-      <div class="stat-cell">
-        <span class="stat-num" id="statStadiums">—</span>
-        <span class="stat-label">Estadios</span>
-      </div>
-
-      <div class="stat-cell">
-        <span class="stat-num" id="statCapacity">—</span>
-        <span class="stat-label">Capacidad promedio</span>
-      </div>
-    </div>
-
-  </section>
-
-</main>
-
-<!-- ═══════════════════════════════════════════════════════
-     FOOTER
-═══════════════════════════════════════════════════════ -->
-<footer>
-  <span>
-    Datos: <code>worldcup26.ir</code> ·
-    Endpoints: <code>/get/teams</code> <code>/get/games</code> <code>/get/stadiums</code>
-  </span>
-  <span>ISW-521 · Bladimir Arroyo B.</span>
-</footer>
-
-<!-- Lógica de la aplicación (defer garantiza que el DOM ya existe) -->
-<script src="worldcup26_app.js" defer></script>
+  <!-- JavaScript -->
+  <script
+    src="worldcup26_app.js"
+    defer
+  ></script>
 
 </body>
 </html>

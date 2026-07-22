@@ -120,8 +120,6 @@
     type="button"
     class="screen-nav-button"
     data-screen="empates"
-    disabled
-    title="Pendiente de implementar"
   >
     5. Empates
   </button>
@@ -1112,6 +1110,191 @@
       class="analitica-ranking"
       id="analiticaRanking"
       aria-live="polite"
+    >
+    </div>
+
+  </section>
+
+</section>
+
+<!-- ═══════════════════════════════════════════════════
+     PANTALLA 2.5: RADAR DE EMPATES
+════════════════════════════════════════════════════ -->
+<section
+  class="app-screen"
+  id="screen-empates"
+  data-screen-panel="empates"
+  aria-labelledby="empatesTitle"
+  hidden
+>
+
+  <!-- Presentación -->
+  <div class="route-hero empates-hero">
+
+    <div>
+      <span class="screen-number">
+        Pantalla 2.5
+      </span>
+
+      <h2 id="empatesTitle">
+        Radar de Empates
+      </h2>
+
+      <p>
+        Identifica los partidos terminados con marcador igual,
+        los organiza por grupo y muestra los equipos involucrados
+        en una matriz visual.
+      </p>
+    </div>
+
+    <div class="empates-total-box">
+      <span>
+        Total de empates
+      </span>
+
+      <strong id="empatesTotal">
+        0
+      </strong>
+    </div>
+
+  </div>
+
+  <!-- Resumen -->
+  <section
+    class="route-section"
+    aria-labelledby="empatesResumenTitle"
+  >
+
+    <div class="section-heading">
+
+      <div>
+        <span class="section-kicker">
+          Resumen general
+        </span>
+
+        <h3 id="empatesResumenTitle">
+          Empates de la fase de grupos
+        </h3>
+      </div>
+
+      <p>
+        Cruce de partidos desde
+        <code>/get/games</code>
+        con nombres y banderas obtenidos desde
+        <code>/get/teams</code>.
+      </p>
+
+    </div>
+
+    <div class="empates-summary">
+
+      <article class="empates-summary-card">
+        <span>
+          Empates encontrados
+        </span>
+
+        <strong id="empatesStatTotal">
+          —
+        </strong>
+      </article>
+
+      <article class="empates-summary-card">
+        <span>
+          Grupos procesados
+        </span>
+
+        <strong id="empatesStatGroups">
+          0 / 12
+        </strong>
+      </article>
+
+      <article class="empates-summary-card">
+        <span>
+          Grupo con más empates
+        </span>
+
+        <strong id="empatesStatTopGroup">
+          —
+        </strong>
+      </article>
+
+    </div>
+
+  </section>
+
+  <!-- Estado de resiliencia -->
+  <div
+    class="empates-retry-banner"
+    id="empatesRetryBanner"
+    role="status"
+    aria-live="polite"
+    hidden
+  >
+
+    <span
+      class="status-icon"
+      aria-hidden="true"
+    >
+      ⏳
+    </span>
+
+    <div>
+      <strong id="empatesRetryTitle">
+        Reintentando petición
+      </strong>
+
+      <p id="empatesRetryMessage">
+        Los grupos ya dibujados permanecen visibles.
+      </p>
+    </div>
+
+    <div
+      class="empates-countdown"
+      id="empatesCountdown"
+      aria-label="Tiempo restante"
+    >
+      0
+    </div>
+
+  </div>
+
+  <!-- Matriz -->
+  <section
+    class="route-section"
+    aria-labelledby="empatesMatrixTitle"
+  >
+
+    <div class="section-heading">
+
+      <div>
+        <span class="section-kicker">
+          Matriz de resultados
+        </span>
+
+        <h3 id="empatesMatrixTitle">
+          Empates agrupados de A a L
+        </h3>
+      </div>
+
+      <p>
+        Cada celda representa un partido empatado y muestra
+        los dos equipos participantes.
+      </p>
+
+    </div>
+
+    <div
+      class="empty-state"
+      id="empatesEmptyState"
+    >
+      Preparando la matriz de empates...
+    </div>
+
+    <div
+      class="empates-matrix"
+      id="empatesMatrix"
+      aria-live="polite"
+      aria-label="Matriz de empates por grupo"
     >
     </div>
 

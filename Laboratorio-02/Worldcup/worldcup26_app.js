@@ -59,6 +59,39 @@ const ANALITICA_RETRY_DELAYS = [
  */
 const TEST_ANALITICA_GAMES_STATUS = null;
 
+/*
+ * Reintentos exclusivos de /get/games
+ * para la pantalla 2.5.
+ */
+const EMPATES_RETRY_DELAYS = [
+  1000,
+  2000,
+  4000,
+  8000
+];
+
+/*
+ * SOLO PARA PRUEBAS POSTERIORES:
+ * null = API real
+ * 429  = simular demasiadas solicitudes
+ */
+const TEST_EMPATES_GAMES_STATUS = null;
+
+const EMPATES_GROUPS = [
+  "A",
+  "B",
+  "C",
+  "D",
+  "E",
+  "F",
+  "G",
+  "H",
+  "I",
+  "J",
+  "K",
+  "L"
+];
+
 /* ──────────────────────────────────────────────────────
    ESTADO DE LA APLICACIÓN
 ────────────────────────────────────────────────────── */
@@ -73,6 +106,9 @@ const state = {
 
   analiticaGames: [],
   analiticaRanking: [],
+
+  empatesGames: [],
+  empatesByGroup: {},
 
   selectedTeam: null,
   selectedGames: [],
@@ -91,6 +127,11 @@ const state = {
   analiticaGamesError: false,
   analiticaGamesLoading: false,
   analiticaRetryAttempt: 0,
+
+  empatesGamesLoaded: false,
+  empatesGamesLoading: false,
+  empatesGamesError: false,
+  empatesRequestCompleted: false,
 
   stadiumsLoaded: false,
   stadiumsError: false,
@@ -292,6 +333,40 @@ const analiticaChart =
 
 const analiticaRanking =
   document.getElementById("analiticaRanking");
+
+/* ──────────────────────────────────────────────────────
+   SELECTORES DE LA PANTALLA 2.5
+────────────────────────────────────────────────────── */
+
+const empatesTotal =
+  document.getElementById("empatesTotal");
+
+const empatesStatTotal =
+  document.getElementById("empatesStatTotal");
+
+const empatesStatGroups =
+  document.getElementById("empatesStatGroups");
+
+const empatesStatTopGroup =
+  document.getElementById("empatesStatTopGroup");
+
+const empatesRetryBanner =
+  document.getElementById("empatesRetryBanner");
+
+const empatesRetryTitle =
+  document.getElementById("empatesRetryTitle");
+
+const empatesRetryMessage =
+  document.getElementById("empatesRetryMessage");
+
+const empatesCountdown =
+  document.getElementById("empatesCountdown");
+
+const empatesEmptyState =
+  document.getElementById("empatesEmptyState");
+
+const empatesMatrix =
+  document.getElementById("empatesMatrix");
 
 /* ──────────────────────────────────────────────────────
    UTILIDADES DE ESTADO VISUAL
@@ -651,6 +726,18 @@ function showScreen(
       !state.analiticaGamesLoading
     ) {
       loadAnaliticaGames();
+    }
+  }
+
+  if (screenName === "empates") {
+    syncEmpatesFromMainGames();
+    renderEmpates();
+
+    if (
+      !state.empatesRequestCompleted &&
+      !state.empatesGamesLoading
+    ) {
+      loadEmpatesGames();
     }
   }
 
@@ -3140,6 +3227,627 @@ function loadAnaliticaGames(
     });
 }
 
+/* ═══════════════════════════════════════════════════════
+   PANTALLA 2.5: RADAR DE EMPATES
+═══════════════════════════════════════════════════════ */
+
+/*
+ * Aprovecha los partidos ya obtenidos por la aplicación
+ * para dibujar inmediatamente la matriz.
+ */
+function syncEmpatesFromMainGames() {
+  if (
+    state.gamesLoaded &&
+    !state.empatesGamesLoaded
+  ) {
+    state.empatesGames =
+      [...state.games];
+
+    state.empatesGamesLoaded =
+      true;
+
+    state.empatesGamesError =
+      false;
+  }
+}
+
+/*
+ * Obtiene la información visible de un equipo.
+ */
+function getEmpateTeamData(
+  teamId,
+  fallbackName
+) {
+  const team =
+    getTeamById(teamId);
+
+  return {
+    id: teamId,
+
+    name:
+      team?.name_en ??
+      fallbackName ??
+      `Equipo ${teamId}`,
+
+    flag:
+      team?.flag ?? ""
+  };
+}
+
+/*
+ * Filtra partidos terminados y empatados,
+ * y los agrupa de A a L.
+ */
+function calculateEmpatesByGroup() {
+  const groupedResults = {};
+
+  EMPATES_GROUPS.forEach(groupName => {
+    groupedResults[groupName] = [];
+  });
+
+  state.empatesGames
+    .filter(game => {
+      if (!isFinishedGame(game)) {
+        return false;
+      }
+
+      const homeScore =
+        parseGameScore(
+          game.home_score
+        );
+
+      const awayScore =
+        parseGameScore(
+          game.away_score
+        );
+
+      return (
+        homeScore !== null &&
+        awayScore !== null &&
+        homeScore === awayScore
+      );
+    })
+    .forEach(game => {
+      const groupName =
+        String(game.group ?? "")
+          .trim()
+          .toUpperCase();
+
+      if (
+        !EMPATES_GROUPS.includes(
+          groupName
+        )
+      ) {
+        return;
+      }
+
+      groupedResults[
+        groupName
+      ].push(game);
+    });
+
+  EMPATES_GROUPS.forEach(groupName => {
+    groupedResults[groupName].sort(
+      (gameA, gameB) => {
+        return (
+          parseLocalDate(
+            gameA.local_date
+          ) -
+          parseLocalDate(
+            gameB.local_date
+          )
+        );
+      }
+    );
+  });
+
+  state.empatesByGroup =
+    groupedResults;
+
+  return groupedResults;
+}
+
+/*
+ * Genera una bandera o un respaldo visual.
+ */
+function createEmpateFlagMarkup(
+  team
+) {
+  if (team.flag) {
+    return `
+      <img
+        src="${team.flag}"
+        alt="Bandera de ${team.name}"
+        loading="lazy"
+      >
+    `;
+  }
+
+  return `
+    <span
+      class="empate-flag-placeholder"
+      aria-label="Bandera no disponible"
+    >
+      ID
+    </span>
+  `;
+}
+
+/*
+ * Crea una celda para un partido empatado.
+ */
+function createEmpateMatchCell(game) {
+  const homeTeam =
+    getEmpateTeamData(
+      game.home_team_id,
+      game.home_team_name_en
+    );
+
+  const awayTeam =
+    getEmpateTeamData(
+      game.away_team_id,
+      game.away_team_name_en
+    );
+
+  const homeScore =
+    parseGameScore(
+      game.home_score
+    );
+
+  const awayScore =
+    parseGameScore(
+      game.away_score
+    );
+
+  const match =
+    document.createElement(
+      "article"
+    );
+
+  match.className =
+    "empate-match";
+
+  match.innerHTML = `
+    <p class="empate-match-date">
+      ${formatLocalDate(game.local_date)}
+    </p>
+
+    <div class="empate-team-row">
+
+      <div class="empate-team">
+
+        <div class="empate-team-flag">
+          ${createEmpateFlagMarkup(
+            homeTeam
+          )}
+        </div>
+
+        <strong>
+          ${homeTeam.name}
+        </strong>
+
+      </div>
+
+      <span class="empate-score">
+        ${homeScore}
+      </span>
+
+    </div>
+
+    <div class="empate-separator">
+      Empate
+    </div>
+
+    <div class="empate-team-row">
+
+      <div class="empate-team">
+
+        <div class="empate-team-flag">
+          ${createEmpateFlagMarkup(
+            awayTeam
+          )}
+        </div>
+
+        <strong>
+          ${awayTeam.name}
+        </strong>
+
+      </div>
+
+      <span class="empate-score">
+        ${awayScore}
+      </span>
+
+    </div>
+  `;
+
+  return match;
+}
+
+/*
+ * Crea una tarjeta completa para un grupo.
+ */
+function createEmpatesGroupCard(
+  groupName,
+  games
+) {
+  const groupCard =
+    document.createElement(
+      "article"
+    );
+
+  groupCard.className =
+    "empates-group-card";
+
+  const header =
+    document.createElement(
+      "div"
+    );
+
+  header.className =
+    "empates-group-header";
+
+  header.innerHTML = `
+    <div>
+      <span>
+        Grupo
+      </span>
+
+      <strong>
+        ${groupName}
+      </strong>
+    </div>
+
+    <div class="empates-group-count">
+      ${games.length}
+      ${
+        games.length === 1
+          ? "empate"
+          : "empates"
+      }
+    </div>
+  `;
+
+  groupCard.appendChild(header);
+
+  const content =
+    document.createElement(
+      "div"
+    );
+
+  content.className =
+    "empates-group-content";
+
+  if (games.length === 0) {
+    const emptyMessage =
+      document.createElement(
+        "p"
+      );
+
+    emptyMessage.className =
+      "empates-group-empty";
+
+    emptyMessage.textContent =
+      "Sin empates registrados.";
+
+    content.appendChild(
+      emptyMessage
+    );
+  } else {
+    games.forEach(game => {
+      content.appendChild(
+        createEmpateMatchCell(game)
+      );
+    });
+  }
+
+  groupCard.appendChild(content);
+
+  return groupCard;
+}
+
+/*
+ * Calcula el grupo con más empates.
+ */
+function getTopEmpatesGroup(
+  groupedResults
+) {
+  let topGroup = null;
+  let highestCount = 0;
+
+  EMPATES_GROUPS.forEach(groupName => {
+    const currentCount =
+      groupedResults[groupName].length;
+
+    if (currentCount > highestCount) {
+      highestCount =
+        currentCount;
+
+      topGroup =
+        groupName;
+    }
+  });
+
+  if (!topGroup) {
+    return "Sin empates";
+  }
+
+  return (
+    `Grupo ${topGroup} ` +
+    `(${highestCount})`
+  );
+}
+
+/*
+ * Renderiza la matriz A-L sin depender
+ * de una tabla tradicional.
+ */
+function renderEmpates() {
+  if (
+    !empatesMatrix ||
+    !empatesEmptyState
+  ) {
+    return;
+  }
+
+  if (!state.empatesGamesLoaded) {
+    empatesEmptyState.style.display =
+      "block";
+
+    empatesEmptyState.textContent =
+      state.empatesGamesError
+        ? "No fue posible cargar los partidos."
+        : "Preparando la matriz de empates...";
+
+    return;
+  }
+
+  const groupedResults =
+    calculateEmpatesByGroup();
+
+  const totalDraws =
+    EMPATES_GROUPS.reduce(
+      (total, groupName) => {
+        return (
+          total +
+          groupedResults[
+            groupName
+          ].length
+        );
+      },
+      0
+    );
+
+  empatesTotal.textContent =
+    String(totalDraws);
+
+  empatesStatTotal.textContent =
+    String(totalDraws);
+
+  empatesStatGroups.textContent =
+    `${EMPATES_GROUPS.length} / 12`;
+
+  empatesStatTopGroup.textContent =
+    getTopEmpatesGroup(
+      groupedResults
+    );
+
+  empatesEmptyState.style.display =
+    "none";
+
+  /*
+   * La matriz se reemplaza únicamente cuando
+   * existen datos válidos. Durante un 429
+   * permanece visible la versión anterior.
+   */
+  empatesMatrix.innerHTML = "";
+
+  EMPATES_GROUPS.forEach(groupName => {
+    empatesMatrix.appendChild(
+      createEmpatesGroupCard(
+        groupName,
+        groupedResults[groupName]
+      )
+    );
+  });
+}
+
+/*
+ * Countdown visible para errores HTTP 429.
+ */
+function runEmpatesCountdown(
+  seconds
+) {
+  return new Promise(resolve => {
+    let remainingSeconds =
+      seconds;
+
+    empatesRetryBanner.hidden =
+      false;
+
+    const updateCountdown = () => {
+      empatesRetryTitle.textContent =
+        "Límite de solicitudes alcanzado";
+
+      empatesRetryMessage.textContent =
+        "Los grupos ya dibujados permanecen visibles. " +
+        `Nuevo intento en ${remainingSeconds} segundo${
+          remainingSeconds === 1
+            ? ""
+            : "s"
+        }.`;
+
+      empatesCountdown.textContent =
+        String(remainingSeconds);
+    };
+
+    updateCountdown();
+
+    const interval =
+      setInterval(() => {
+        remainingSeconds -= 1;
+
+        if (remainingSeconds <= 0) {
+          clearInterval(interval);
+
+          empatesRetryTitle.textContent =
+            "Reintentando partidos";
+
+          empatesRetryMessage.textContent =
+            "Realizando una nueva petición a /get/games...";
+
+          empatesCountdown.textContent =
+            "0";
+
+          resolve();
+          return;
+        }
+
+        updateCountdown();
+      }, 1000);
+  });
+}
+
+/*
+ * Petición recursiva con backoff.
+ * Solo responde con reintentos ante HTTP 429.
+ */
+function fetchEmpatesGamesWithRetry(
+  attempt = 0
+) {
+  const requestUrl =
+    TEST_EMPATES_GAMES_STATUS === 429
+      ? "http://localhost:3001/status/429"
+      : `${BASE}/get/games`;
+
+  return fetch(requestUrl)
+    .then(response => {
+      if (response.ok) {
+        return response.json();
+      }
+
+      if (response.status !== 429) {
+        throw new Error(
+          `Error HTTP ${response.status} al cargar los empates`
+        );
+      }
+
+      if (
+        attempt >=
+        EMPATES_RETRY_DELAYS.length
+      ) {
+        throw new Error(
+          "Se agotaron los reintentos de /get/games para Radar de Empates."
+        );
+      }
+
+      const delay =
+        EMPATES_RETRY_DELAYS[
+          attempt
+        ];
+
+      console.warn(
+        `/get/games de Empates devolvió HTTP 429. ` +
+        `Reintento ${attempt + 1} en ${delay / 1000}s.`
+      );
+
+      return runEmpatesCountdown(
+        delay / 1000
+      ).then(() => {
+        return fetchEmpatesGamesWithRetry(
+          attempt + 1
+        );
+      });
+    });
+}
+
+/*
+ * Carga o actualiza los partidos del Radar.
+ */
+function loadEmpatesGames() {
+  if (state.empatesGamesLoading) {
+    return;
+  }
+
+  state.empatesGamesLoading =
+    true;
+
+  state.empatesGamesError =
+    false;
+
+  fetchEmpatesGamesWithRetry()
+    .then(jsonData => {
+      if (
+        !Array.isArray(
+          jsonData.games
+        )
+      ) {
+        throw new Error(
+          "La API no devolvió una lista válida de partidos para Radar de Empates."
+        );
+      }
+
+      state.empatesGames =
+        jsonData.games;
+
+      state.empatesGamesLoaded =
+        true;
+
+      state.empatesGamesError =
+        false;
+
+      state.empatesRequestCompleted =
+        true;
+
+      empatesRetryBanner.hidden =
+        true;
+
+      console.log(
+        `${state.empatesGames.length} partidos cargados para Radar de Empates.`
+      );
+
+      renderEmpates();
+    })
+    .catch(error => {
+      console.error(
+        "Error al cargar Radar de Empates:",
+        error
+      );
+
+      state.empatesGamesError =
+        true;
+
+      state.empatesRequestCompleted =
+        true;
+
+      /*
+       * No se borra empatesGames ni la matriz.
+       */
+      empatesRetryBanner.hidden =
+        false;
+
+      empatesRetryTitle.textContent =
+        "No se pudieron actualizar los partidos";
+
+      empatesRetryMessage.textContent =
+        "Los grupos ya dibujados permanecen visibles. " +
+        "Se agotaron los reintentos automáticos.";
+
+      empatesCountdown.textContent =
+        "—";
+
+      if (
+        !state.empatesGamesLoaded
+      ) {
+        renderEmpates();
+      }
+    })
+    .finally(() => {
+      state.empatesGamesLoading =
+        false;
+    });
+}
+
 /* ──────────────────────────────────────────────────────
    CARGAR GRUPOS
 ────────────────────────────────────────────────────── */
@@ -3249,6 +3957,7 @@ function loadTeams(
       populateTeamSelector();
       renderGoleadas();
       renderMuro();
+      renderEmpates();
 
       console.log(
         `${state.teams.length} equipos cargados correctamente.`
@@ -3285,6 +3994,7 @@ function loadTeams(
         populateTeamSelector();
         renderGoleadas();
         renderMuro();
+        renderEmpates();
 
         console.warn(
           "Se utilizaron equipos guardados en localStorage."
@@ -3312,6 +4022,7 @@ function loadTeams(
       renderGoleadas();
       renderMuro();
       scheduleTeamsBackgroundRetry();
+      renderEmpates();
     })
     .finally(() => {
       teamsRequestInProgress = false;
@@ -3413,6 +4124,17 @@ function loadGames() {
       state.gamesLoaded = true;
       state.gamesError = false;
 
+      if (!state.empatesGamesLoaded) {
+        state.empatesGames =
+          [...state.games];
+
+        state.empatesGamesLoaded =
+          true;
+
+        state.empatesGamesError =
+          false;
+      }
+
       saveToCache(
         CACHE_KEYS.games,
         state.games
@@ -3435,6 +4157,7 @@ function loadGames() {
       renderGoleadas();
       renderMuro();
       renderAnalitica();
+      renderEmpates();
     })
     .catch(error => {
       console.error(
@@ -3459,6 +4182,17 @@ function loadGames() {
         state.gamesLoaded = true;
         state.gamesError = false;
 
+        if (!state.empatesGamesLoaded) {
+          state.empatesGames =
+            [...state.games];
+
+          state.empatesGamesLoaded =
+            true;
+
+          state.empatesGamesError =
+            false;
+        }
+
         markResourceAsCached(
           "games",
           cachedGames.savedAt
@@ -3477,6 +4211,7 @@ function loadGames() {
         renderGoleadas();
         renderMuro();
         renderAnalitica();
+        renderEmpates();
         return;
       }
 
@@ -3493,6 +4228,7 @@ function loadGames() {
       renderGoleadas();
       renderMuro();
       renderAnalitica();
+      renderEmpates();
     });
 }
 
